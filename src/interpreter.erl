@@ -15,6 +15,7 @@ lookup(Key) ->
 execute() ->
     receive 
 	{From, {[save, Key,Document]}} -> 
+            io:format("saving the document with key: ~p~n", [key]),
 	    io:format("saving the document: ~p~n", [Document]),
             insert(Key, Document),
 	    From ! {self(), ok}

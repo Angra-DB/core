@@ -1,6 +1,6 @@
 -module(strings).
 
--export(startsWith).
+-export([startsWith/2]).
 
 startsWith(C, S) -> startsWith1(C, S, false).
 

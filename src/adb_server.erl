@@ -8,7 +8,7 @@
 
 
 
--module(server).
+-module(adb_server).
 
 -behavior(gen_server).
 
