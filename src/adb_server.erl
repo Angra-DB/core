@@ -46,6 +46,7 @@
 %%%======================================================
 
 start_link(Port) ->
+    interpreter:start(),  
     gen_server:start_link({local, ?SERVER}, ?MODULE, [Port], []).
 			  
 start_link() ->

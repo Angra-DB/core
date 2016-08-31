@@ -3,7 +3,8 @@
 -export([execute/0, start/0, insert/2, lookup/1]).
 
 start() ->
-    _Docs = ets:new(docs, [set, public, named_table]).
+    _Docs = ets:new(docs, [set, public, named_table]),
+    execute. 
 
 insert(Key, Value) ->
     ets:insert(docs, {Key, Value}).
