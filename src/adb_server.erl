@@ -29,7 +29,7 @@
 	, terminate/2
 	, code_change/3]).
 
-
+-export([parse/1]).
 
 -define(SERVER, ?MODULE).      % declares a SERVER macro constant (?MODULE is the module's name) 
 -define(DEFAULT_PORT, 1234).   % declares a DEFAULT_PORT macro constant
@@ -88,12 +88,12 @@ code_change(_OldVsn, State, _Extra) ->
 
 process_request(Socket, RawData) ->
     try 
-       % [Cmd|Args] = parse(RawData),
-       % io:format("~p~n", [Cmd|Args]),
+       Command = parse(RawData),
        Pid = spawn(interpreter, execute, []),
-       Pid ! {self(), {[save, 1, rbonifacio]}},
+       Pid ! {self(), {Command}},
        receive
-          {_From, ok} -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", ["ok"]))
+          {_From, ok} -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", ["ok"]));
+          {_From, Doc} -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Doc]))
        end
     catch
        _Class:Err -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Err]))	
@@ -103,8 +103,10 @@ process_request(Socket, RawData) ->
 parse(RawData) ->    
     Tokens = string:tokens(RawData, " "),    
     case Tokens of 
-	 [save|[Key|Doc]] -> [save|[Key|(string:join(Doc, " "))]];    
-	 [lookup,Key]   -> [lookup|Key]
+	["save", Key | Doc] -> [save, Key, (string:join(Doc, " "))];    
+	["lookup", Key] -> [lookup, Key];
+	["delete", Key] -> [delete, Key];
+	["update", Key| Doc] -> [update, Key, (string:join(Doc, " "))]
     end.
 			    
 			 
