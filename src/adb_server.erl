@@ -92,7 +92,7 @@ process_request(Socket, RawData) ->
        Pid = spawn(interpreter, execute, []),
        Pid ! {self(), {Command}},
        receive
-          {_From, ok} -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", ["ok"]));
+          {_From, ok, Id} -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Id]));
           {_From, Doc} -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Doc]))
        end
     catch
@@ -101,9 +101,9 @@ process_request(Socket, RawData) ->
 
 
 parse(RawData) ->    
-    Tokens = string:tokens(RawData, " "),    
+    Tokens = string:tokens(RawData, " \r\n"),    
     case Tokens of 
-	["save", Key | Doc] -> [save, Key, (string:join(Doc, " "))];    
+	["save", Doc] -> [save, Doc];    
 	["lookup", Key] -> [lookup, Key];
 	["delete", Key] -> [delete, Key];
 	["update", Key| Doc] -> [update, Key, (string:join(Doc, " "))]
