@@ -88,6 +88,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 process_request(Socket, RawData) ->
     try 
+       io:format("~p~n", [RawData]), 
        Command = parse(RawData),
        Pid = spawn(interpreter, execute, []),
        Pid ! {self(), {Command}},
@@ -100,10 +101,17 @@ process_request(Socket, RawData) ->
     end.
 
 
+preprocess(RawData) ->
+    Rev = lists:reverse(RawData),
+    lists:reverse(lists:dropwhile(fun(C) -> (C == $\n) or (C == $\r) end, Rev)). 
+					   
+		    
+
 parse(RawData) ->    
-    Tokens = string:tokens(RawData, " \r\n"),    
+    Tokens = string:tokens(preprocess(RawData), " "),    
+    io:format("~p~n", [Tokens]),
     case Tokens of 
-	["save", Doc] -> [save, Doc];    
+	["save"| Doc] -> [save, (string:join(Doc, " "))];    
 	["lookup", Key] -> [lookup, Key];
 	["delete", Key] -> [delete, Key];
 	["update", Key| Doc] -> [update, Key, (string:join(Doc, " "))]
