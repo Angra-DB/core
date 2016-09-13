@@ -11,15 +11,34 @@
 
 -export([start/2, stop/1]).
 
+-define(DEFAULT_PORT, 1234). 
+
 % this operation is called when the 
 % OTP system wants to start our application. 
 % actually, this is the most relevant 
 % operation of this model, which is responsible 
 % for starting the root supervisor. 
+
 start(_Type, _StartArgs) ->
-     case adb_sup:start_link() of 
-	 {ok, Pid} -> {ok, Pid};
-	 Other -> {error, Other}
+
+    lager:info("starting the AngraDB server ~n"), 
+    
+    _Docs = ets:new(docs, [set, public, named_table]),
+    
+    Port = case application:get_env(tcp_interface, port) of 
+	       {ok, P} -> P;
+	       undefined -> ?DEFAULT_PORT
+	   end, 
+    
+    {ok, LSock} = gen_tcp:listen(Port, [{active,true}]),
+    
+    lager:info("listening to TCP requests on port ~w ~n", [Port]),
+    
+    case adb_sup:start_link(LSock) of 
+	{ok, Pid} -> adb_sup:start_child(),
+		      {ok, Pid};	 
+	Other -> error_logger:error_msg(" error: ~s", [Other]), 
+		 {error, Other}
      end. 
 
 stop(_State) ->

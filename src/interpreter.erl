@@ -1,9 +1,6 @@
 -module(interpreter).
 
--export([execute/0, start/0, insert/2, lookup/1]).
-
-start() ->
-    _Docs = ets:new(docs, [set, public, named_table]).
+-export([process_request/2]).
 
 insert(Key, Value) ->
     ets:insert(docs, {Key, Value}).
@@ -20,12 +17,19 @@ gen_id() ->
     Ctx = hashids:new([{salt, "AngraDB"}, {min_hash_length, 1}, {default_alphabet, "ABCDEF0123456789"}]),
     hashids:encode(Ctx, Id).
 
-execute() ->
-    receive 
-	{From, {[save, Document]}} -> 
-            Id = gen_id(), 
-	    insert(Id, Document),
-            From ! {self(), ok, Id};
-        {From, {[lookup, Key]}} -> 
-	    From ! {self(), lookup(Key)}
-    end.
+process_request(save, Document) ->
+    Id = gen_id(), 
+    insert(Id, Document),
+    {ok, Id};
+process_request(lookup, Key) ->
+    lookup(Key).
+
+%% execute() ->
+%%     receive 
+%% 	{From, {[save, Document]}} -> 
+%%             Id = gen_id(), 
+%% 	    insert(Id, Document),
+%%             From ! {self(), ok, Id};
+%%         {From, {[lookup, Key]}} -> 
+%% 	    From ! {self(), lookup(Key)}
+%%     end.

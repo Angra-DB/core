@@ -17,7 +17,6 @@
 %
 
 -export([ start_link/1
-	, start_link/0
 	, get_count/0   % we can understand both get_count and stop as adm operations
 	, stop/0]).
 
@@ -29,12 +28,11 @@
 	, terminate/2
 	, code_change/3]).
 
--export([parse/1]).
+-export([split_command/1]).
 
 -define(SERVER, ?MODULE).      % declares a SERVER macro constant (?MODULE is the module's name) 
--define(DEFAULT_PORT, 1234).   % declares a DEFAULT_PORT macro constant
 
--record(state, {port, lsock, request_count = 0}). % a record for keeping the server state
+-record(state, {lsock, request_count = 0}). % a record for keeping the server state
 
 %%%======================================================
 %%% API
@@ -45,13 +43,9 @@
 %%% is a bit trick. 
 %%%======================================================
 
-start_link(Port) ->
-    interpreter:start(),  
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [Port], []).
+start_link(LSock) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [LSock], []).
 			  
-start_link() ->
-    start_link(?DEFAULT_PORT).
-
 get_count() ->
     gen_server:call(?SERVER, get_count).
 
@@ -62,12 +56,13 @@ stop() ->
 %%% gen_server callbacks
 %%%===========================================
 
-init([Port]) ->
-    {ok, LSock} = gen_tcp:listen(Port, [{active, true}]),
-    {ok, #state{port = Port, lsock = LSock}, 0}.
+init([LSock]) ->
+    {ok, #state{lsock = LSock}, 0}.
 
 handle_call(get_count, _From, State) ->
-     {reply, {ok, State#state.request_count}, State}.
+     {reply, {ok, State#state.request_count}, State};
+handle_call(Msg, _From, State) ->
+    {reply, {ok, Msg}, State}. 
 
 handle_cast(stop, State) ->
     {stop, normal, State}.
@@ -76,8 +71,13 @@ handle_info({tcp, Socket, RawData}, State) ->
     process_request(Socket, RawData),
     RequestCount = State#state.request_count,
     {noreply,State#state{request_count = RequestCount + 1}};
+
+handle_info({tcp_closed, _Socket}, State) ->
+    {stop, normal, State};
+
 handle_info(timeout, #state{lsock = LSock} = State) ->
     {ok, _Sock} = gen_tcp:accept(LSock),
+    adb_sup:start_child(),
     {noreply, State}. 
 
 terminate(_Reason, _State) ->
@@ -88,33 +88,32 @@ code_change(_OldVsn, State, _Extra) ->
 
 process_request(Socket, RawData) ->
     try 
-       io:format("~p~n", [RawData]), 
-       Command = parse(RawData),
-       Pid = spawn(interpreter, execute, []),
-       Pid ! {self(), {Command}},
-       receive
-          {_From, ok, Id} -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Id]));
-          {_From, Doc} -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Doc]))
-       end
+	parse_and_process_request(Socket, RawData)
     catch
        _Class:Err -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Err]))	
     end.
 
-
 preprocess(RawData) ->
     Rev = lists:reverse(RawData),
     lists:reverse(lists:dropwhile(fun(C) -> (C == $\n) or (C == $\r) end, Rev)). 
-					   
-		    
+					   		    
+parse_and_process_request(Socket, RawData) ->    
+    Tokens = split(preprocess(RawData)),
+    Response = case Tokens of 
+	{"save", Doc}    -> interpreter:process_request(save, Doc);
+	{"lookup", Key}  -> interpreter:process_request(lookup, Key);
+	{"delete", Key}  -> interpreter:process_request(delete, Key);
+	{"update", Args} -> {Key, Doc} = split(Args), 
+			    interpreter:process_request(update, Key, Doc);
+	_ -> throw(invalid_command)		    
+    end,
+    gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Response])).
+    
 
-parse(RawData) ->    
-    Tokens = string:tokens(preprocess(RawData), " "),    
-    io:format("~p~n", [Tokens]),
-    case Tokens of 
-	["save"| Doc] -> [save, (string:join(Doc, " "))];    
-	["lookup", Key] -> [lookup, Key];
-	["delete", Key] -> [delete, Key];
-	["update", Key| Doc] -> [update, Key, (string:join(Doc, " "))]
-    end.
-			    
-			 
+split(Str) ->
+    Idx = string:chr(Str, $ ),
+    Len = string:len(Str),
+    Command = string:sub_string(Str, 1, Idx -1),
+    Args = string:sub_string(Str, Idx + 1, Len),
+    {Command, string:strip(Args)}.
+    
