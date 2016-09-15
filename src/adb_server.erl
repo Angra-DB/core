@@ -9,6 +9,7 @@
 
 
 -module(adb_server).
+-include_lib("eunit/include/eunit.hrl").
 
 -behavior(gen_server).
 
@@ -28,7 +29,8 @@
 	, terminate/2
 	, code_change/3]).
 
--export([split_command/1]).
+% utility functions
+-export([ split/1 ]).
 
 -define(SERVER, ?MODULE).      % declares a SERVER macro constant (?MODULE is the module's name) 
 
@@ -111,9 +113,7 @@ parse_and_process_request(Socket, RawData) ->
     
 
 split(Str) ->
-    Idx = string:chr(Str, $ ),
-    Len = string:len(Str),
-    Command = string:sub_string(Str, 1, Idx -1),
-    Args = string:sub_string(Str, Idx + 1, Len),
+    Stripped = string:strip(Str),
+    Pred = fun(A) -> A =/= $  end,
+    {Command, Args} = lists:splitwith(Pred, Stripped),
     {Command, string:strip(Args)}.
-    
