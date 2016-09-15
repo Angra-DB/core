@@ -1,0 +1,12 @@
+[{<<"hashids">>,
+  {git,"git://github.com/snaiper80/hashids-erlang.git",
+       {ref,"d353f0b9fd780d17a178efa777d621c720af5ea1"}},
+  0},
+ {<<"jiffy">>,
+  {git,"https://github.com/davisp/jiffy.git",
+       {ref,"1febce3ca86c5ca5d5a3618ed3d5f125bb99e4c5"}},
+  0},
+ {<<"lager">>,
+  {git,"git://github.com/basho/lager.git",
+       {ref,"d8ad5eb64a6dda296d8706aa2cd664a4a84e8129"}},
+  0}].
