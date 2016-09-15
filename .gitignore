@@ -8,4 +8,9 @@ deps
 erl_crash.dump
 .concrete/DEV_MODE
 .rebar
+rebar3
+_build/
+rebar.lock
+*.DS_Store
 *.*#
+compile_commands.json

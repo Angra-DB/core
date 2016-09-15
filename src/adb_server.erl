@@ -28,7 +28,7 @@
 	, terminate/2
 	, code_change/3]).
 
--export([split_command/1]).
+-export([split/1]).
 
 -define(SERVER, ?MODULE).      % declares a SERVER macro constant (?MODULE is the module's name) 
 
