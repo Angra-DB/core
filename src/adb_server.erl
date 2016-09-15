@@ -9,6 +9,7 @@
 
 
 -module(adb_server).
+-include_lib("eunit/include/eunit.hrl").
 
 -behavior(gen_server).
 
@@ -28,7 +29,8 @@
 	, terminate/2
 	, code_change/3]).
 
--export([split_command/1]).
+% utility functions
+-export([ split/1 ]).
 
 -define(SERVER, ?MODULE).      % declares a SERVER macro constant (?MODULE is the module's name) 
 
@@ -116,4 +118,3 @@ split(Str) ->
     Command = string:sub_string(Str, 1, Idx -1),
     Args = string:sub_string(Str, Idx + 1, Len),
     {Command, string:strip(Args)}.
-    
