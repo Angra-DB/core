@@ -4,7 +4,7 @@
   0},
  {<<"jiffy">>,
   {git,"https://github.com/davisp/jiffy.git",
-       {ref,"1febce3ca86c5ca5d5a3618ed3d5f125bb99e4c5"}},
+       {ref,"b67791645f682bfe39cc08e4825773ff809d5d6b"}},
   0},
  {<<"lager">>,
   {git,"git://github.com/basho/lager.git",
