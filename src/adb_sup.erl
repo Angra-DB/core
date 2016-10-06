@@ -20,6 +20,7 @@
 -define(SERVER, ?MODULE).
 
 start_link(LSock) ->
+    _Docs = ets:new(docs, [set, public, named_table]),   
     supervisor:start_link({local, ?SERVER}, ?MODULE,[LSock]).
 
 start_child() ->

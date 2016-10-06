@@ -23,7 +23,6 @@ start(_Type, _StartArgs) ->
 
     lager:info("starting the AngraDB server ~n"), 
     
-    _Docs = ets:new(docs, [set, public, named_table]),
     
     Port = case application:get_env(tcp_interface, port) of 
 	       {ok, P} -> P;
