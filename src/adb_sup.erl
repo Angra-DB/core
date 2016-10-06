@@ -20,6 +20,7 @@
 -define(SERVER, ?MODULE).
 
 start_link(LSock) ->
+    lager:info("starting the ets table", []),
     _Docs = ets:new(docs, [set, public, named_table]),   
     supervisor:start_link({local, ?SERVER}, ?MODULE,[LSock]).
 
