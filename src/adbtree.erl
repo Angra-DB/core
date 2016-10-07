@@ -31,6 +31,7 @@ save_doc(PosLastDoc, LastVersion, Doc, Settings) ->
 	{ok, Pos, (LastVersion+1)}.
 	% On create, remember to pass "-1" as PosLastDoc and "0" as LastVersion.
 
+%header must be in end of file
 write_header(Fp, #dbsettings{dbname=Name, sizeversion=SizeOfVersion, sizeinbytes=SizeOfSizeOfDoc}, #btree{order=BtreeOrder}, RootPointer) ->
 	NameBin = list_to_binary(lists:duplicate((40 - length(Name)), 0)++Name),
 	Header = <<NameBin/binary, SizeOfSizeOfDoc:?SizeOfSize/unit:8, SizeOfVersion:?SizeOfSize/unit:8, BtreeOrder:?OrderSize/unit:8, RootPointer:?SizeOfPointer/unit:8>>,
@@ -54,12 +55,14 @@ bin_to_leaf(LeafBin, SizeOfVersion, BtreeOrder) ->
 
 read_leaf(Fp, #dbsettings{sizeversion = SizeOfVersion}, #btree{order=BtreeOrder}) ->
 	{ok, LeafBin} = file:read(Fp, size_of_leaf(SizeOfVersion, BtreeOrder)),
-	bin_to_leaf(LeafBin, SizeOfVersion, BtreeOrder). 
+	bin_to_leaf(LeafBin, SizeOfVersion, BtreeOrder).
 	
 
 write_leaf(Fp, #dbsettings{sizeversion=SizeOfVersion}, #btree{order=BtreeOrder}, Leaf) ->
+	{ok, NewPos} = file:position(Fp, eof),
 	LeafBin = leaf_to_bin(Leaf, SizeOfVersion, BtreeOrder),
-	file:write(Fp, <<?Leaf:1/unit:8, LeafBin/binary>>).
+	file:write(Fp, <<?Leaf:1/unit:8, LeafBin/binary>>),
+	{ok, NewPos}.
 	
 %Add exception handling later...
 %Name is the name of the Database, without any extensions.
@@ -79,6 +82,7 @@ create_db(Name, SizeOfSizeOfDoc, SizeOfVersion, BtreeOrder) ->
 
 %Given a file pointer, return the DBSettings and Btree
 get_header(Fp) ->
+	file:position(Fp, bof),
 	{ok, Header} = file:read(Fp, ?SizeOfHeader),
 	<<Name:40/binary, SizeOfSize:?SizeOfSize/unit:8, SizeOfVersion:?SizeOfSize/unit:8, BtreeOrder:?OrderSize/unit:8, RootPointer:?SizeOfPointer/unit:8>> = Header,
 	Settings = #dbsettings{dbname=lists:dropwhile(fun(X) -> X == 0 end, binary:bin_to_list(Name)), sizeinbytes=SizeOfSize, sizeversion=SizeOfVersion},
@@ -91,15 +95,33 @@ insert(Doc, Key, DBName) ->
 	{ok, Fp} = file:open(NameIndex, [read, write, binary]),
 	{Settings, Btree} = get_header(Fp),
 	{ok, PosDoc, Version} = save_doc(-1, 0, Doc, Settings),
-	% btree_insert(Fp, Btree, Key, PosDoc, Version),
+	% btree_insert(Fp, Btree, Settings, Key, PosDoc, Version),
 	file:close(Fp),
 	{ok}.
 
-% btree_insert(Fp, #btree{order=Order, curNode=PNode}, Key, PosDoc, Version) ->
+% btree_insert(Fp, Btree = #btree{curNode = PNode}, Settings, Key, PosDoc, Version) ->
 % 	file:position(Fp, {bof, PNode}),
 % 	{ok, Type} = file:read(Fp, 1),
 % 	case Type of
-% 		<<?Leaf:1/unit:8>> ->
+% 		<<?Leaf:1/unit:8>> -> 
+% 			Leaf = read_leaf(Fp, Settings, Btree),
+% 			case leaf_insert(Leaf, Btree#btree.order, Key, PosDoc, Version) of
+% 				{ok, NewLeaf} -> 
+% 					{ok, NewPos} = write_leaf(Fp, Settings, Btree, NewLeaf);
+% 				{ok, NewLeafL, NewLeafR, NewValue} ->
+% 					{ok, NewPosL} = write_leaf(Fp, Settings, Btree, NewLeafL),
+% 					{ok, NewPosR} = write_leaf(Fp, Settings, Btree, NewLeafR),
+% 					{ok, NewPosL, NewPosR, NewValue};
+% 				Error -> 
+% 					Error
+% 			end;
+% 		<<?Node:1/unit:8>> ->
+% 			Node = read_node(Fp, Settings, Btree),
+% 			NextNode = find_next_node(Node, Btree#btree.order, Key)
+% 			case btree_insert(Fp, Btree#btree{curNode = NextNode}, Settings, Key, PosDoc, Version) of
+% 				{ok, }
+
+% 	end.
 
 
 
