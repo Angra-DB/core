@@ -40,10 +40,10 @@ create_db(Name, SizeOfSizeOfDoc, SizeOfVersion, BtreeOrder) ->
 	Settings = #dbsettings{dbname=Name, sizeinbytes=SizeOfSizeOfDoc, sizeversion=SizeOfVersion},
 	Btree = #btree{order=BtreeOrder},
 	write_header(Fp, Settings, Btree, ?SizeOfHeader),
-	Keys = lists:duplicate(BtreeOrder, 0),
-	Versions = lists:duplicate(BtreeOrder, 0),
-	Pointers = lists:duplicate(BtreeOrder, 0), %A pointer for each key plus the pointer for the next leaf.
-	write_leaf(Fp, Settings, Btree, #leaf{keys=Keys, versions=Versions, docPointers=Pointers, leafPointer=0}),
+	Keys = lists:duplicate(BtreeOrder, -1),
+	Versions = lists:duplicate(BtreeOrder, -1),
+	Pointers = lists:duplicate(BtreeOrder, -1), %A pointer for each key plus the pointer for the next leaf.
+	write_leaf(Fp, Settings, Btree, #leaf{keys=Keys, versions=Versions, docPointers=Pointers, leafPointer=-1}),
 	file:close(Fp),
 	{ok, Settings}.
 
@@ -60,9 +60,11 @@ insert(Doc, Key, DBName) ->
 insert(Fp, Btree, Settings, Key, PosDoc, Version) ->
 	case btree_insert(Fp, Btree, Settings, Key, PosDoc, Version) of
 		{ok, ChildP} ->
-			{ok, NewRoot};
+			{ok, ChildP};
 		{ok, LChildP, RChildP, NewValue} ->
-			{ok, NewRoot} = write_node(Fp, Settings, Btree, #node{keys=[NewValue], nodePointers=[LChildP, RChildP]})
+			{ok, NewRoot} = write_node(Fp, Btree, #node{keys=[NewValue], nodePointers=[LChildP, RChildP]});
+		Error ->
+			Error
 	end.		
 
 btree_insert(Fp, Btree = #btree{curNode = PNode}, Settings, Key, PosDoc, Version) ->
@@ -86,18 +88,16 @@ btree_insert(Fp, Btree = #btree{curNode = PNode}, Settings, Key, PosDoc, Version
 			NextNode = find_next_node(Node, Key),
 			case btree_insert(Fp, Btree#btree{curNode = NextNode}, Settings, Key, PosDoc, Version) of
 				{ok, ChildP} -> 
-					update_reference(Node, Key, ChildP, Btree#btree.order),
-					{ok, NewPos} = write_node(Fp, Settings, Btree, ChildP);
+					NewNode = update_reference(Node, Key, ChildP),
+					{ok, NewPos} = write_node(Fp, Btree, NewNode);
 				{ok, RChildP, LChildP, NewValue} ->
-					case node_insert(Node, RChildP, LChildP, NewValue) of
+					case node_insert(Node, Btree#btree.order, LChildP, RChildP, NewValue) of
 						{ok, NewNode} ->
-							{ok, NewPos} = write_node(Fp, Settings, Btree, NewNode); 
+							{ok, NewPos} = write_node(Fp, Btree, NewNode); 
 						{ok, NewNodeL, NewNodeR, NewValue} ->
-							{ok, NewPosL} = write_node(Fp, Settings, Btree, NewNodeL),
-							{ok, NewPosR} = write_node(Fp, Settings, Btree, NewNodeR),
-							{ok, NewPosL, NewPosR, NewValue};
-						Error ->
-							Error
+							{ok, NewPosL} = write_node(Fp, Btree, NewNodeL),
+							{ok, NewPosR} = write_node(Fp, Btree, NewNodeR),
+							{ok, NewPosL, NewPosR, NewValue}
 					end;
 				Error -> 
 					Error
@@ -106,7 +106,19 @@ btree_insert(Fp, Btree = #btree{curNode = PNode}, Settings, Key, PosDoc, Version
 
 %Operations with files, nodes and leaves and header
 
+update_reference(#node{keys = Keys, nodePointers = Pointers}, Key, ChildP) ->
+	NewPointers = update_reference(Keys, Pointers, Key, ChildP),
+	#node{keys = Keys, nodePointers = NewPointers}.
 
+update_reference([], [_Pointer], _, NewPointer) ->
+	[NewPointer];
+update_reference([CurKey | Keys], [Pointer|Pointers], NewKey, NewPointer) ->
+	if
+		NewKey < CurKey ->
+			[NewPointer | Pointers];
+		true -> 
+			[Pointer | update_reference(Keys, Pointers, NewKey, NewPointer)]  
+	end.
 
 % Discover the child node which a given key belong.
 find_next_node(#node{keys = Keys, nodePointers = Pointers}, Key) ->
@@ -114,18 +126,19 @@ find_next_node(#node{keys = Keys, nodePointers = Pointers}, Key) ->
 
 find_next_node([], [], _Key) ->
 	{error, notNode};
-find_next_node([],[Pointer], _Key)
+find_next_node([], [Pointer], _Key) -> 
 	Pointer;
 find_next_node([CurKey | Keys], [Pointer | Pointers], NewKey) ->
 	if
-		NewK < CurKey ->
+		NewKey < CurKey ->
 			Pointer;
 		true ->
-			find_next_node(Keys, Pointers, Tam-1, NewKey)
-	end
+			find_next_node(Keys, Pointers, NewKey)
+	end.
 	
 %header must be in end of file
 write_header(Fp, #dbsettings{dbname=Name, sizeversion=SizeOfVersion, sizeinbytes=SizeOfSizeOfDoc}, #btree{order=BtreeOrder}, RootPointer) ->
+	file:position(Fp, bof),
 	NameBin = list_to_binary(lists:duplicate((40 - length(Name)), 0)++Name),
 	Header = <<NameBin/binary, SizeOfSizeOfDoc:?SizeOfSize/unit:8, SizeOfVersion:?SizeOfSize/unit:8, BtreeOrder:?OrderSize/unit:8, RootPointer:?SizeOfPointer/unit:8>>,
 	file:write(Fp, Header).
@@ -179,11 +192,11 @@ node_to_bin(#node{keys=Keys, nodePointers=Pointers}, BtreeOrder) ->
 bin_to_node(NodeBin, BtreeOrder) ->
 	{KeysExt, PointersBin} = list_from_bin(NodeBin, BtreeOrder, ?KeySize),
 	Keys = compact_list(KeysExt),
-	{DocPointersExt, <<>>} = list_from_bin(NodeBin, BtreeOrder+1, ?SizeOfPointer),
-	DocPointers = compact_list(DocPointers),
-	#node{keys = Keys, docPointers= DocPointers}.
+	{PointersExt, <<>>} = list_from_bin(PointersBin, BtreeOrder+1, ?SizeOfPointer),
+	Pointers = compact_list(PointersExt),
+	#node{keys = Keys, nodePointers= Pointers}.
 
-read_node(Fp, #btree{BtreeOrder}) ->
+read_node(Fp, #btree{order = BtreeOrder}) ->
 	{ok, NodeBin} = file:read(Fp, size_of_node(BtreeOrder)),
 	bin_to_node(NodeBin, BtreeOrder).
 
@@ -191,36 +204,89 @@ write_node(Fp, #btree{order=BtreeOrder}, Node) ->
 	{ok, NewPos} = file:position(Fp, eof),
 	NodeBin = node_to_bin(Node, BtreeOrder),
 	file:write(Fp, <<?Node:1/unit:8, NodeBin/binary>>),
-	{ok, newPos}.
+	{ok, NewPos}.
+
+node_insert_key([], [_Pointer], LChildP, RChildP, NewValue) ->
+	{[NewValue], [LChildP, RChildP]};
+node_insert_key([K|Keys], [P|Pointers], LChildP, RChildP, NewValue) ->
+	if
+		NewValue < K -> 
+			{[NewValue, K | Keys], [LChildP, RChildP | Pointers]};
+		true ->
+			{NewKeys, NewPointers} = node_insert_key(Keys, Pointers, LChildP, RChildP, NewValue),
+			{[K | NewKeys], [P | NewPointers]}
+	end.
 
 % Ponteiro a esquerda da chave aponta para o no com elementos menores que a chave, enquato que o ponteiro a direita aponta para
-% o no com
+% o no com elementos maiores ou iguais a ele
 
 leaf_insert(Leaf, BtreeOrder, Key, PosDoc, Version) -> 
 	case insert_ord(Leaf#leaf.keys, Key) of
 		{ok, NewKeys, Index} ->	
-			{ok, NewDocPointers} = insert_list(Leaf#leaf.docPointers, PosDoc, Index),
-			{ok, NewVersions} = insert_list(Leaf#leaf.versions, Version, Index),
-			NewLeaf = Leaf#leaf{keys=NewKeys, docPointers = NewDocPointers, versions = NewVersions}
+			NewDocPointers = insert_list(Leaf#leaf.docPointers, PosDoc, Index),
+			NewVersions = insert_list(Leaf#leaf.versions, Version, Index),
+			NewLeaf = Leaf#leaf{keys=NewKeys, docPointers = NewDocPointers, versions = NewVersions, leafPointer = -1},
 			if
 				length(NewLeaf#leaf.keys) > (BtreeOrder) ->
-					{KeysL, KeysR} = lists:split(NewLeaf#leaf.keys, (BtreeOrder-1) div 2),
-					{DocPointersL, DocPointersR} = lists:split(NewLeaf#leaf.docPointers, (BtreeOrder-1) div 2),
-					{VersionsL, VersionsR} = lists:split(NewLeaf#leaf.docPointers, (BtreeOrder-1) div 2),
-					NewLeafL = #leaf{versions = VersionsL, docPointers = DocPointersL, keys = KeysL, leafPointer = 0},
-					NewLeafR = #leaf{versions = VersionsR, docPointers = DocPointersR, keys = KeysR, leafPointer = 0},
+					{KeysL, KeysR} = lists:split((BtreeOrder+1) div 2, NewLeaf#leaf.keys),
+					{DocPointersL, DocPointersR} = lists:split((BtreeOrder+1) div 2, NewLeaf#leaf.docPointers),
+					{VersionsL, VersionsR} = lists:split((BtreeOrder+1) div 2, NewLeaf#leaf.versions),
+					NewLeafL = #leaf{versions = VersionsL, docPointers = DocPointersL, keys = KeysL, leafPointer = -1},
+					NewLeafR = #leaf{versions = VersionsR, docPointers = DocPointersR, keys = KeysR, leafPointer = -1},
 					[NewValue|_L] = KeysR,
 					{ok, NewLeafL, NewLeafR, NewValue};
 				true ->
-					NewLeaf
+					{ok, NewLeaf}
 			end;
 		Error ->
 			Error
-	end
+	end.
+node_insert(#node{keys = Keys, nodePointers = Pointers}, LChildP, RChildP, NewValue) ->
+	{NewKeys, NewPointers} = node_insert_key(Keys, Pointers, LChildP, RChildP, NewValue),
+	#node{keys = NewKeys, nodePointers = NewPointers}.
+
+
+node_insert(Node, BtreeOrder, LChildP, RChildP, NewValue) ->
+	NewNode = node_insert(Node, LChildP, RChildP, NewValue),
+	if
+		length(NewNode#node.keys) > BtreeOrder ->
+			{KeysL, [NewValue | KeysR]} = lists:split((BtreeOrder+1) div 2, NewNode#node.keys),
+			{PointersL, PointersR} = lists:split((BtreeOrder+3) div 2, NewNode#node.nodePointers),
+			NewNodeL = #node{keys = KeysL, nodePointers = PointersL},
+			NewNodeR = #node{keys = KeysR, nodePointers = PointersR},
+			{ok, NewNodeL, NewNodeR, NewValue};
+		true ->
+			NewNode
+	end.
 
 
 %Utility Functions
 
+insert_ord(L, V) ->
+	insert_ord(L, V, 0).
+
+insert_ord([], V, I) ->
+	{ok, [V], I};
+insert_ord([X|L], V, I) ->
+	if
+		X == V ->
+			{error, keyInUse};
+		V < X ->
+			{ok, [V, X|L], I};
+		true -> 
+			case insert_ord(L, V, I+1) of
+				{ok, NewL, Index} ->
+					{ok, [X|NewL], Index};
+				Error ->
+					Error
+			end
+	end.
+insert_list([], V, _) ->
+	[V];
+insert_list(L, V, 0) ->
+	[V|L];
+insert_list([X|L], V, Index) ->
+	[X|insert_list(L, V, Index-1)].
 
 gen_bin([X|[]], ElementSize) ->
 	<<X:ElementSize/unit:8>>;
@@ -230,14 +296,14 @@ gen_bin([X|L], ElementSize) ->
 	<<X:ElementSize/unit:8, Rest/binary>>.
 
 complete_list(L, Tam) ->
-	L ++ lists:duplicate(Tam-length(L), 0).
+	L ++ lists:duplicate(Tam-length(L), -1).
 
 list_from_bin(Bin, 1, Size) ->
-	<<Element:Size/unit:8, Rest/binary>> = Bin,
+	<<Element:Size/signed-unit:8, Rest/binary>> = Bin,
 	{[Element], Rest};
 
 list_from_bin(Bin, N, Size) ->
-	<<Element:Size/unit:8, Rest/binary>> = Bin,
+	<<Element:Size/signed-unit:8, Rest/binary>> = Bin,
 	{L, Suffix} = list_from_bin(Rest, N-1, Size),
 	{[Element | L], Suffix}.
 
@@ -248,4 +314,4 @@ size_of_node(BtreeOrder) ->
 	BtreeOrder*?KeySize + (BtreeOrder+1)*?SizeOfPointer.
 
 compact_list(L) ->
-	reverse(dropwhile(fun(X) -> X == 0 end, reverse(L))).
+	lists:reverse(lists:dropwhile(fun(X) -> X == -1 end, lists:reverse(L))).
