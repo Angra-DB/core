@@ -29,42 +29,57 @@ save_doc(PosLastDoc, LastVersion, Doc, Settings) ->
 	file:write(Fp, <<SizeBin/binary, Version/binary, Doc/binary, PointerLastDoc/binary>>),
 	file:close(Fp),
 	{ok, Pos, (LastVersion+1)}.
+
 	% On create, remember to pass "-1" as PosLastDoc and "0" as LastVersion.
 	
 %Add exception handling later...
 %Name is the name of the Database, without any extensions.
 %Header is formated as: NameOfDB/40bytes, SizeOfSizeOfDocs/8bytes,SyzeOfVersion/8bytes,BtreeOrder/2bytes, PointerForRoot/8Bytes.
-create_db(Name, SizeOfSizeOfDoc, SizeOfVersion, BtreeOrder) -> 
-	NameIndex = Name++"Index.adb",
-	{ok, Fp} = file:open(NameIndex, [exclusive, binary, write]),
-	Settings = #dbsettings{dbname=Name, sizeinbytes=SizeOfSizeOfDoc, sizeversion=SizeOfVersion},
-	Btree = #btree{order=BtreeOrder},
-	write_header(Fp, Settings, Btree, ?SizeOfHeader),
-	Keys = lists:duplicate(BtreeOrder, -1),
-	Versions = lists:duplicate(BtreeOrder, -1),
-	Pointers = lists:duplicate(BtreeOrder, -1), %A pointer for each key plus the pointer for the next leaf.
-	write_leaf(Fp, Settings, Btree, #leaf{keys=Keys, versions=Versions, docPointers=Pointers, leafPointer=-1}),
-	file:close(Fp),
-	{ok, Settings}.
+create_db(Name, SizeOfSizeOfDoc, SizeOfVersion, BtreeOrder) ->
+	try
+		NameIndex = Name++"Index.adb",
+		{ok, Fp} = file:open(NameIndex, [exclusive, binary, write]),
+		Settings = #dbsettings{dbname=Name, sizeinbytes=SizeOfSizeOfDoc, sizeversion=SizeOfVersion},
+		Btree = #btree{order=BtreeOrder},
+		write_header(Fp, Settings, Btree, ?SizeOfHeader),
+		Keys = lists:duplicate(BtreeOrder, -1),
+		Versions = lists:duplicate(BtreeOrder, -1),
+		Pointers = lists:duplicate(BtreeOrder, -1), %A pointer for each key plus the pointer for the next leaf.
+		write_leaf(Fp, Settings, Btree, #leaf{keys=Keys, versions=Versions, docPointers=Pointers, leafPointer=-1}),
+		file:close(Fp),
+		{ok, Settings}
+	catch
+		error:Error -> 
+			{caught, Error}
+	end.
 
 %insert new key-value pair
 insert(Doc, Key, DBName) ->
-	NameIndex = DBName++"Index.adb",
-	{ok, Fp} = file:open(NameIndex, [read, write, binary]),
-	{Settings, Btree} = get_header(Fp),
-	{ok, PosDoc, Version} = save_doc(-1, 0, Doc, Settings),
-	{ok, NewRoot} = insert(Fp, Btree, Settings, Key, PosDoc, Version),
-	write_header(Fp, Settings, Btree, NewRoot),
-	file:close(Fp),
-	{ok}.
+	try
+		NameIndex = DBName++"Index.adb",
+		{ok, Fp} = file:open(NameIndex, [read, write, binary]),
+		{Settings, Btree} = get_header(Fp),
+		{ok, PosDoc, Version} = save_doc(-1, 0, Doc, Settings),
+		{ok, NewRoot} = insert(Fp, Btree, Settings, Key, PosDoc, Version),
+		write_header(Fp, Settings, Btree, NewRoot),
+		file:close(Fp)
+	catch
+		error:Error ->
+			{caught, Error, erlang:get_stacktrace()};
+		exit:Error ->
+			{caught, exit, Error, erlang:get_stacktrace()}
+	end.
 insert(Fp, Btree, Settings, Key, PosDoc, Version) ->
-	case btree_insert(Fp, Btree, Settings, Key, PosDoc, Version) of
+	try btree_insert(Fp, Btree, Settings, Key, PosDoc, Version) of
 		{ok, ChildP} ->
 			{ok, ChildP};
 		{ok, LChildP, RChildP, NewValue} ->
-			{ok, NewRoot} = write_node(Fp, Btree, #node{keys=[NewValue], nodePointers=[LChildP, RChildP]});
-		Error ->
-			Error
+			write_node(Fp, Btree, #node{keys=[NewValue], nodePointers=[LChildP, RChildP]})
+	catch
+		error:Error ->
+			error(Error);
+		exit:Error ->
+			exit(Error)
 	end.		
 
 btree_insert(Fp, Btree = #btree{curNode = PNode}, Settings, Key, PosDoc, Version) ->
@@ -73,38 +88,96 @@ btree_insert(Fp, Btree = #btree{curNode = PNode}, Settings, Key, PosDoc, Version
 	case Type of
 		<<?Leaf:1/unit:8>> -> 
 			Leaf = read_leaf(Fp, Settings, Btree),
-			case leaf_insert(Leaf, Btree#btree.order, Key, PosDoc, Version) of
+			try leaf_insert(Leaf, Btree#btree.order, Key, PosDoc, Version) of
 				{ok, NewLeaf} -> 
-					{ok, NewPos} = write_leaf(Fp, Settings, Btree, NewLeaf);
+					write_leaf(Fp, Settings, Btree, NewLeaf);
 				{ok, NewLeafL, NewLeafR, NewValue} ->
 					{ok, NewPosL} = write_leaf(Fp, Settings, Btree, NewLeafL),
 					{ok, NewPosR} = write_leaf(Fp, Settings, Btree, NewLeafR),
-					{ok, NewPosL, NewPosR, NewValue};
-				Error -> 
-					Error
+					{ok, NewPosL, NewPosR, NewValue}
+			catch
+				error:Error -> 
+					error(Error)
 			end;
 		<<?Node:1/unit:8>> ->
 			Node = read_node(Fp, Btree),
 			NextNode = find_next_node(Node, Key),
-			case btree_insert(Fp, Btree#btree{curNode = NextNode}, Settings, Key, PosDoc, Version) of
+			try btree_insert(Fp, Btree#btree{curNode = NextNode}, Settings, Key, PosDoc, Version) of
 				{ok, ChildP} -> 
 					NewNode = update_reference(Node, Key, ChildP),
-					{ok, NewPos} = write_node(Fp, Btree, NewNode);
-				{ok, RChildP, LChildP, NewValue} ->
+					write_node(Fp, Btree, NewNode);
+				{ok, LChildP, RChildP, NewValue} ->
 					case node_insert(Node, Btree#btree.order, LChildP, RChildP, NewValue) of
 						{ok, NewNode} ->
-							{ok, NewPos} = write_node(Fp, Btree, NewNode); 
-						{ok, NewNodeL, NewNodeR, NewValue} ->
+							write_node(Fp, Btree, NewNode); 
+						{ok, NewNodeL, NewNodeR, PromotedValue} ->
 							{ok, NewPosL} = write_node(Fp, Btree, NewNodeL),
 							{ok, NewPosR} = write_node(Fp, Btree, NewNodeR),
-							{ok, NewPosL, NewPosR, NewValue}
-					end;
-				Error -> 
-					Error
-			end
+							{ok, NewPosL, NewPosR, PromotedValue}
+					end
+			catch
+				error:Error -> 
+					error(Error)
+			end;
+		_V -> 
+			error(invalidNodeId)
 	end.
 
 %Operations with files, nodes and leaves and header
+
+pretty_printer(Name) ->
+	try
+		NameIndex = Name++"Index.adb",
+		{ok, Fp} = file:open(NameIndex, [read, write, binary]),
+		{Settings, Btree} = get_header(Fp),
+		pretty_printer(Fp, Settings, Btree),
+		file:close(Fp)
+	catch
+		error:Error ->
+			{caught, Error, erlang:get_stacktrace()};
+		exit:Error ->
+			{caught, exit, Error, erlang:get_stacktrace()}
+	end.
+
+pretty_printer(Fp, Settings, Btree = #btree{curNode = PNode}) ->
+	file:position(Fp, {bof, PNode}),
+	{ok, Type} = file:read(Fp, 1),
+	case Type of
+		<<?Leaf:1/unit:8>> -> 
+			Leaf = read_leaf(Fp, Settings, Btree),
+			print_leaf(Leaf);
+		<<?Node:1/unit:8>> ->
+			Node = read_node(Fp, Btree),
+			print_node(Node),
+			lists:foreach(fun(X) -> pretty_printer(Fp, Settings, Btree#btree{curNode = X}) end, Node#node.nodePointers);
+		_V -> 
+			error(invalidNodeId)
+	end.
+
+
+print_leaf(#leaf{keys = Keys, docPointers = Pointers, versions = Versions}) ->
+	io:format("L ", []),
+	print_leaf(Keys, Pointers, Versions).
+
+print_leaf([], [], []) -> 
+	io:format("~n",[]);
+
+print_leaf([Key|Keys],[Pointer|Pointers], [Version|Versions]) ->
+	io:format("*~p|~p|v~p|", [Pointer, Key, Version]),
+	print_leaf(Keys, Pointers, Versions).
+
+print_node(#node{keys = Keys, nodePointers = Pointers}) ->
+	io:format("N ", []),
+	print_node(Keys, Pointers).
+
+print_node([], [Pointer]) ->
+	io:format("*~p~n", [Pointer]);
+
+print_node([Key|Keys],[Pointer|Pointers]) ->
+	io:format("*~p|~p|", [Pointer, Key]),
+	print_node(Keys, Pointers).
+
+
 
 update_reference(#node{keys = Keys, nodePointers = Pointers}, Key, ChildP) ->
 	NewPointers = update_reference(Keys, Pointers, Key, ChildP),
@@ -125,7 +198,7 @@ find_next_node(#node{keys = Keys, nodePointers = Pointers}, Key) ->
 	find_next_node(Keys, Pointers, Key).
 
 find_next_node([], [], _Key) ->
-	{error, notNode};
+	erlang:error(notNode);
 find_next_node([], [Pointer], _Key) -> 
 	Pointer;
 find_next_node([CurKey | Keys], [Pointer | Pointers], NewKey) ->
@@ -206,22 +279,12 @@ write_node(Fp, #btree{order=BtreeOrder}, Node) ->
 	file:write(Fp, <<?Node:1/unit:8, NodeBin/binary>>),
 	{ok, NewPos}.
 
-node_insert_key([], [_Pointer], LChildP, RChildP, NewValue) ->
-	{[NewValue], [LChildP, RChildP]};
-node_insert_key([K|Keys], [P|Pointers], LChildP, RChildP, NewValue) ->
-	if
-		NewValue < K -> 
-			{[NewValue, K | Keys], [LChildP, RChildP | Pointers]};
-		true ->
-			{NewKeys, NewPointers} = node_insert_key(Keys, Pointers, LChildP, RChildP, NewValue),
-			{[K | NewKeys], [P | NewPointers]}
-	end.
 
 % Ponteiro a esquerda da chave aponta para o no com elementos menores que a chave, enquato que o ponteiro a direita aponta para
 % o no com elementos maiores ou iguais a ele
 
 leaf_insert(Leaf, BtreeOrder, Key, PosDoc, Version) -> 
-	case insert_ord(Leaf#leaf.keys, Key) of
+	try insert_ord(Leaf#leaf.keys, Key) of
 		{ok, NewKeys, Index} ->	
 			NewDocPointers = insert_list(Leaf#leaf.docPointers, PosDoc, Index),
 			NewVersions = insert_list(Leaf#leaf.versions, Version, Index),
@@ -237,48 +300,68 @@ leaf_insert(Leaf, BtreeOrder, Key, PosDoc, Version) ->
 					{ok, NewLeafL, NewLeafR, NewValue};
 				true ->
 					{ok, NewLeaf}
-			end;
-		Error ->
-			Error
+			end
+	catch
+		error:Error ->
+			error(Error)
 	end.
+
+node_insert_key([], [_Pointer], LChildP, RChildP, NewValue) ->
+	{[NewValue], [LChildP, RChildP]};
+node_insert_key([K|Keys], [P|Pointers], LChildP, RChildP, NewValue) ->
+	if
+		NewValue < K -> 
+			{[NewValue, K | Keys], [LChildP, RChildP | Pointers]};
+		true ->
+			{NewKeys, NewPointers} = node_insert_key(Keys, Pointers, LChildP, RChildP, NewValue),
+			{[K | NewKeys], [P | NewPointers]}
+	end.
+
 node_insert(#node{keys = Keys, nodePointers = Pointers}, LChildP, RChildP, NewValue) ->
 	{NewKeys, NewPointers} = node_insert_key(Keys, Pointers, LChildP, RChildP, NewValue),
 	#node{keys = NewKeys, nodePointers = NewPointers}.
 
 
-node_insert(Node, BtreeOrder, LChildP, RChildP, NewValue) ->
-	NewNode = node_insert(Node, LChildP, RChildP, NewValue),
+node_insert(Node, BtreeOrder, LChildP, RChildP, Value) ->
+	NewNode = node_insert(Node, LChildP, RChildP, Value),
 	if
 		length(NewNode#node.keys) > BtreeOrder ->
 			{KeysL, [NewValue | KeysR]} = lists:split((BtreeOrder+1) div 2, NewNode#node.keys),
 			{PointersL, PointersR} = lists:split((BtreeOrder+3) div 2, NewNode#node.nodePointers),
 			NewNodeL = #node{keys = KeysL, nodePointers = PointersL},
 			NewNodeR = #node{keys = KeysR, nodePointers = PointersR},
+			io:format("~p, ~p, ~p~n", [NewNodeL, NewNodeR, NewValue]),
 			{ok, NewNodeL, NewNodeR, NewValue};
 		true ->
-			NewNode
+			{ok, NewNode}
 	end.
 
 
 %Utility Functions
 
 insert_ord(L, V) ->
-	insert_ord(L, V, 0).
+	try
+		insert_ord(L, V, 0)
+	catch
+		error:Error ->
+			error(Error)
+	end.
 
 insert_ord([], V, I) ->
 	{ok, [V], I};
 insert_ord([X|L], V, I) ->
 	if
 		X == V ->
-			{error, keyInUse};
+			 error(keyInUse);
 		V < X ->
 			{ok, [V, X|L], I};
 		true -> 
-			case insert_ord(L, V, I+1) of
+			try insert_ord(L, V, I+1) of
 				{ok, NewL, Index} ->
-					{ok, [X|NewL], Index};
-				Error ->
-					Error
+					{ok, [X|NewL], Index}
+			catch
+				error:Error ->
+					error(Error)
 			end
 	end.
 insert_list([], V, _) ->
