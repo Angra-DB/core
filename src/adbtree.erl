@@ -42,9 +42,9 @@ create_db(Name, SizeOfSizeOfDoc, SizeOfVersion, BtreeOrder) ->
 		Settings = #dbsettings{dbname=Name, sizeinbytes=SizeOfSizeOfDoc, sizeversion=SizeOfVersion},
 		Btree = #btree{order=BtreeOrder},
 		write_header(Fp, Settings, Btree, ?SizeOfHeader),
-		Keys = lists:duplicate(BtreeOrder, -1),
-		Versions = lists:duplicate(BtreeOrder, -1),
-		Pointers = lists:duplicate(BtreeOrder, -1), %A pointer for each key plus the pointer for the next leaf.
+		Keys = lists:duplicate(BtreeOrder-1, -1),
+		Versions = lists:duplicate(BtreeOrder-1, -1),
+		Pointers = lists:duplicate(BtreeOrder-1, -1), %A pointer for each key plus the pointer for the next leaf.
 		write_leaf(Fp, Settings, Btree, #leaf{keys=Keys, versions=Versions, docPointers=Pointers, leafPointer=-1}),
 		file:close(Fp),
 		{ok, Settings}
@@ -65,9 +65,9 @@ insert(Doc, Key, DBName) ->
 		file:close(Fp)
 	catch
 		error:Error ->
-			{caught, Error, erlang:get_stacktrace()};
+			{error, Error};
 		exit:Error ->
-			{caught, exit, Error, erlang:get_stacktrace()}
+			{exit, Error}
 	end.
 insert(Fp, Btree, Settings, Key, PosDoc, Version) ->
 	try btree_insert(Fp, Btree, Settings, Key, PosDoc, Version) of
@@ -226,20 +226,20 @@ get_header(Fp) ->
 	{Settings, Btree}.
 
 leaf_to_bin(#leaf{keys=Keys, docPointers=DocPointers, leafPointer=LeafPointer, versions=Versions}, SizeOfVersion, BtreeOrder) ->
-	KeysExt = complete_list(Keys, BtreeOrder),
+	KeysExt = complete_list(Keys, BtreeOrder-1),
 	KeysBin = gen_bin(KeysExt, ?KeySize),
-	DocPointersExt = complete_list(DocPointers, BtreeOrder),
+	DocPointersExt = complete_list(DocPointers, BtreeOrder-1),
 	DocPointersBin = gen_bin(DocPointersExt, ?SizeOfPointer),
-	VersionsExt = complete_list(Versions, BtreeOrder),
+	VersionsExt = complete_list(Versions, BtreeOrder-1),
 	VersionsBin = gen_bin(VersionsExt, SizeOfVersion),
 	<<KeysBin/binary, VersionsBin/binary, DocPointersBin/binary, LeafPointer:?SizeOfPointer/unit:8>>.
 
 bin_to_leaf(LeafBin, SizeOfVersion, BtreeOrder) ->
-	{KeysExt, VersionsBin} = list_from_bin(LeafBin, BtreeOrder, ?KeySize),
+	{KeysExt, VersionsBin} = list_from_bin(LeafBin, BtreeOrder-1, ?KeySize),
 	Keys = compact_list(KeysExt),
-	{VersionsExt, PointersBin} = list_from_bin(VersionsBin, BtreeOrder, SizeOfVersion),
+	{VersionsExt, PointersBin} = list_from_bin(VersionsBin, BtreeOrder-1, SizeOfVersion),
 	Versions = compact_list(VersionsExt),
-	{DocPointersExt, LeafPointerBin} = list_from_bin(PointersBin, BtreeOrder, ?SizeOfPointer),
+	{DocPointersExt, LeafPointerBin} = list_from_bin(PointersBin, BtreeOrder-1, ?SizeOfPointer),
 	DocPointers = compact_list(DocPointersExt),
 	<<LeafPointer:?SizeOfPointer/unit:8>> = LeafPointerBin,
 	#leaf{keys = Keys, versions = Versions, docPointers = DocPointers, leafPointer = LeafPointer}.
@@ -256,16 +256,16 @@ write_leaf(Fp, #dbsettings{sizeversion=SizeOfVersion}, #btree{order=BtreeOrder},
 	{ok, NewPos}.
 
 node_to_bin(#node{keys=Keys, nodePointers=Pointers}, BtreeOrder) ->
-	KeysExt = complete_list(Keys, BtreeOrder),
+	KeysExt = complete_list(Keys, BtreeOrder-1),
 	KeysBin = gen_bin(KeysExt, ?KeySize),
-	PointersExt = complete_list(Pointers, BtreeOrder+1),
+	PointersExt = complete_list(Pointers, BtreeOrder),
 	PointersBin = gen_bin(PointersExt, ?SizeOfPointer),
 	<<KeysBin/binary, PointersBin/binary>>.
 
 bin_to_node(NodeBin, BtreeOrder) ->
-	{KeysExt, PointersBin} = list_from_bin(NodeBin, BtreeOrder, ?KeySize),
+	{KeysExt, PointersBin} = list_from_bin(NodeBin, BtreeOrder-1, ?KeySize),
 	Keys = compact_list(KeysExt),
-	{PointersExt, <<>>} = list_from_bin(PointersBin, BtreeOrder+1, ?SizeOfPointer),
+	{PointersExt, <<>>} = list_from_bin(PointersBin, BtreeOrder, ?SizeOfPointer),
 	Pointers = compact_list(PointersExt),
 	#node{keys = Keys, nodePointers= Pointers}.
 
@@ -290,10 +290,10 @@ leaf_insert(Leaf, BtreeOrder, Key, PosDoc, Version) ->
 			NewVersions = insert_list(Leaf#leaf.versions, Version, Index),
 			NewLeaf = Leaf#leaf{keys=NewKeys, docPointers = NewDocPointers, versions = NewVersions, leafPointer = -1},
 			if
-				length(NewLeaf#leaf.keys) > (BtreeOrder) ->
-					{KeysL, KeysR} = lists:split((BtreeOrder+1) div 2, NewLeaf#leaf.keys),
-					{DocPointersL, DocPointersR} = lists:split((BtreeOrder+1) div 2, NewLeaf#leaf.docPointers),
-					{VersionsL, VersionsR} = lists:split((BtreeOrder+1) div 2, NewLeaf#leaf.versions),
+				length(NewLeaf#leaf.keys) > (BtreeOrder-1) ->
+					{KeysL, KeysR} = lists:split((BtreeOrder) div 2, NewLeaf#leaf.keys),
+					{DocPointersL, DocPointersR} = lists:split((BtreeOrder) div 2, NewLeaf#leaf.docPointers),
+					{VersionsL, VersionsR} = lists:split((BtreeOrder) div 2, NewLeaf#leaf.versions),
 					NewLeafL = #leaf{versions = VersionsL, docPointers = DocPointersL, keys = KeysL, leafPointer = -1},
 					NewLeafR = #leaf{versions = VersionsR, docPointers = DocPointersR, keys = KeysR, leafPointer = -1},
 					[NewValue|_L] = KeysR,
@@ -325,9 +325,9 @@ node_insert(#node{keys = Keys, nodePointers = Pointers}, LChildP, RChildP, NewVa
 node_insert(Node, BtreeOrder, LChildP, RChildP, Value) ->
 	NewNode = node_insert(Node, LChildP, RChildP, Value),
 	if
-		length(NewNode#node.keys) > BtreeOrder ->
-			{KeysL, [NewValue | KeysR]} = lists:split((BtreeOrder+1) div 2, NewNode#node.keys),
-			{PointersL, PointersR} = lists:split((BtreeOrder+3) div 2, NewNode#node.nodePointers),
+		length(NewNode#node.keys) > (BtreeOrder-1) ->
+			{KeysL, [NewValue | KeysR]} = lists:split((BtreeOrder) div 2, NewNode#node.keys),
+			{PointersL, PointersR} = lists:split((BtreeOrder+2) div 2, NewNode#node.nodePointers),
 			NewNodeL = #node{keys = KeysL, nodePointers = PointersL},
 			NewNodeR = #node{keys = KeysR, nodePointers = PointersR},
 			io:format("~p, ~p, ~p~n", [NewNodeL, NewNodeR, NewValue]),
@@ -391,10 +391,10 @@ list_from_bin(Bin, N, Size) ->
 	{[Element | L], Suffix}.
 
 size_of_leaf(SizeOfVersion, BtreeOrder) ->
-	BtreeOrder*SizeOfVersion+BtreeOrder*?KeySize+BtreeOrder*?SizeOfPointer+?SizeOfPointer. %Node identifier
+	(BtreeOrder-1)*SizeOfVersion+(BtreeOrder-1)*?KeySize+(BtreeOrder-1)*?SizeOfPointer+?SizeOfPointer. %Node identifier
 
 size_of_node(BtreeOrder) ->
-	BtreeOrder*?KeySize + (BtreeOrder+1)*?SizeOfPointer.
+	(BtreeOrder-1)*?KeySize + (BtreeOrder)*?SizeOfPointer.
 
 compact_list(L) ->
 	lists:reverse(lists:dropwhile(fun(X) -> X == -1 end, lists:reverse(L))).
