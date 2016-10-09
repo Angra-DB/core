@@ -50,7 +50,7 @@ create_db(Name, SizeOfSizeOfDoc, SizeOfVersion, BtreeOrder) ->
 		{ok, Settings}
 	catch
 		error:Error -> 
-			{caught, Error}
+			{error, Error}
 	end.
 
 %insert new key-value pair
@@ -109,7 +109,7 @@ btree_insert(Fp, Btree = #btree{curNode = PNode}, Settings, Key, PosDoc, Version
 				{ok, LChildP, RChildP, NewValue} ->
 					case node_insert(Node, Btree#btree.order, LChildP, RChildP, NewValue) of
 						{ok, NewNode} ->
-							write_node(Fp, Btree, NewNode); 
+							write_node(Fp, Btree, NewNode);
 						{ok, NewNodeL, NewNodeR, PromotedValue} ->
 							{ok, NewPosL} = write_node(Fp, Btree, NewNodeL),
 							{ok, NewPosR} = write_node(Fp, Btree, NewNodeR),
@@ -134,9 +134,9 @@ pretty_printer(Name) ->
 		file:close(Fp)
 	catch
 		error:Error ->
-			{caught, Error, erlang:get_stacktrace()};
+			{error, Error};
 		exit:Error ->
-			{caught, exit, Error, erlang:get_stacktrace()}
+			{exit, Error}
 	end.
 
 pretty_printer(Fp, Settings, Btree = #btree{curNode = PNode}) ->
