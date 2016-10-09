@@ -50,7 +50,7 @@ create_db(Name, SizeOfSizeOfDoc, SizeOfVersion, BtreeOrder) ->
 		{ok, Settings}
 	catch
 		error:Error -> 
-			{error, Error}
+			{caught, Error}
 	end.
 
 %insert new key-value pair
@@ -109,7 +109,7 @@ btree_insert(Fp, Btree = #btree{curNode = PNode}, Settings, Key, PosDoc, Version
 				{ok, LChildP, RChildP, NewValue} ->
 					case node_insert(Node, Btree#btree.order, LChildP, RChildP, NewValue) of
 						{ok, NewNode} ->
-							write_node(Fp, Btree, NewNode);
+							write_node(Fp, Btree, NewNode); 
 						{ok, NewNodeL, NewNodeR, PromotedValue} ->
 							{ok, NewPosL} = write_node(Fp, Btree, NewNodeL),
 							{ok, NewPosR} = write_node(Fp, Btree, NewNodeR),
@@ -123,6 +123,144 @@ btree_insert(Fp, Btree = #btree{curNode = PNode}, Settings, Key, PosDoc, Version
 			error(invalidNodeId)
 	end.
 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	Area where the lookup and update functions will take place.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+
+lookup(Key, DBName) ->
+	try
+		NameIndex = DBName++"Index.adb",
+		{ok, Fp} = file:open(NameIndex, [read, write, binary]),
+		{Settings, Btree} = get_header(Fp),
+		{ok, TargetDoc} = btree_lookup(Fp, Settings, Btree, Key),
+		Doc = read_doc(TargetDoc, Settings),
+		Doc
+	catch
+		error:Error ->
+			error(Error)
+	end.
+
+btree_lookup(Fp, Settings, Btree = #btree{curNode = PNode}, Key) -> 
+	file:position(Fp, {bof, PNode}),
+	{ok, Type} = file:read(Fp, 1),
+	case Type of
+		<<?Node:1/unit:8>> ->
+			Node = read_node(Fp, Btree),
+			NextNode = find_next_node(Node, Key),
+			try
+				btree_lookup(Fp, Settings, Btree = #btree{curNode = NextNode}, Key)
+			catch
+				error:Error ->
+					error(Error)
+			end;
+		<<?Leaf:1/unit:8>> ->
+			Leaf = read_leaf(Fp, Settings, Btree),
+			TDoc = doc_pointer(Key, Leaf#leaf.keys, Leaf#leaf.docPointers),
+			TDoc;
+		_V ->
+			error(invalidNodeId)
+	end.
+
+doc_pointer(Key, [LKey|LKeys], [PDoc|LDocPointers]) ->
+	if 
+		Key == LKey ->
+			PDoc;
+		true ->
+			doc_pointer(Key, LKeys, LDocPointers)
+	end;
+doc_pointer(_, [], []) ->
+	notInDB.
+
+
+
+
+update(Doc, Key, DBName) -> 
+	try
+		NameIndex = DBName++"Index.adb",
+		{ok, Fp} = file:open(NameIndex, [read, write, binary]),
+		{Settings, Btree} = get_header(Fp),
+		btree_update(Fp, Settings, Btree, Key, Doc, root)
+	catch
+		error:Error ->
+			error(Error)
+	end.
+
+btree_update(Fp, Settings, Btree = #btree{curNode = PNode}, Key, Doc, IsRoot) ->
+	file:position(Fp, {bof, PNode}),
+	{ok, Type} = file:read(Fp, 1),
+	case Type of
+		<<?Node:1/unit:8>> ->
+			Node = read_node(Fp, Btree),
+			NextNode = find_next_node(Node, Key),
+			try
+				SonPointer = btree_update(Fp, Settings, Btree = #btree{curNode = NextNode}, Key, Doc, noRoot),
+				NewNode = update_reference(Node, Key, SonPointer),
+				{ok, NewPosNode} = write_node(Fp, Btree, NewNode),
+				if
+					IsRoot == root ->
+						% Atualiza header
+						write_header(Fp, Settings, Btree, NewPosNode),
+						ok;
+					true ->
+						NewPosNode
+				end
+			catch
+				error:Error ->
+					error(Error)
+			end;
+		<<?Leaf:1/unit:8>> ->
+			Leaf = read_leaf(Fp, Settings, Btree),
+			{PosDoc, Version} = get_doc_pointer_version(Key, Leaf#leaf.keys , Leaf#leaf.docPointers , Leaf#leaf.versions),
+			{ok, NewPos, NewVersion} = save_doc(PosDoc, Version, Doc, Settings),
+			LPos = update_list(NewPos, PosDoc, Leaf#leaf.docPointers),
+			LVersions = update_list(NewVersion, Version, Leaf#leaf.versions),
+			NewLeaf = Leaf#leaf{docPointers = LPos, versions = LVersions},
+			{ok, NewLeafPos} = write_leaf(Fp, Settings, Btree, NewLeaf),
+			NewLeafPos;
+		_V ->
+			error(invalidNodeId)
+	end.
+
+get_doc_pointer_version(Key, [LKey|LKeys], [PosDoc|Docs], [Version|Versions]) ->
+	if 
+		Key == LKey ->
+			{PosDoc, Version};
+		true ->
+			get_doc_pointer_version(Key, LKeys, Docs, Versions)
+	end;
+get_doc_pointer_version(_, [], [], []) ->
+	notInDB.
+
+update_list(New, Old, [Pos|LPos]) ->
+	if
+		Old == Pos ->
+			[New|LPos];
+		true ->
+			[Pos|update_list(New, Old, LPos)]
+	end;
+update_list(_, _, []) ->
+	error.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	End of the area for lookup and update functions.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+
 %Operations with files, nodes and leaves and header
 
 pretty_printer(Name) ->
@@ -134,9 +272,9 @@ pretty_printer(Name) ->
 		file:close(Fp)
 	catch
 		error:Error ->
-			{error, Error};
+			{caught, Error, erlang:get_stacktrace()};
 		exit:Error ->
-			{exit, Error}
+			{caught, exit, Error, erlang:get_stacktrace()}
 	end.
 
 pretty_printer(Fp, Settings, Btree = #btree{curNode = PNode}) ->
