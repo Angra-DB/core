@@ -162,7 +162,6 @@ delete(Fp, Btree = #btree{order=BtreeOrder, curNode=PNode}, Settings, Key) ->
 				{lacking, ChildNode} ->
 					case find_brother(Fp, Node, Key, Settings, Btree) of
 						{Side, Brother, DivKey} when length(Brother#node.keys) == (BtreeOrder-1) div 2 ->
-							io:format("entrei"),
 							NewChildNode = merge(ChildNode, Brother, DivKey, Side),
 							{ok, PChildNode} = write_node(Fp, Btree, NewChildNode),
 							case delete_key_and_update(Node, DivKey, PChildNode, Btree#btree.order) of
@@ -227,7 +226,6 @@ btree_delete(Fp, Btree = #btree{curNode = PNode, order=BtreeOrder}, Settings, Ke
 						{Side, Brother, DivKey} when length(Brother#leaf.keys) == (BtreeOrder-1) div 2 ->
 							NewChildNode = merge(ChildNode, Brother, DivKey, Side),
 							{ok, PChildNode} = write_leaf(Fp, Settings, Btree, NewChildNode),
-							io:format("entrei2"),
 							delete_key_and_update(Node, DivKey, PChildNode, Btree#btree.order);				
 						{Side, Brother, DivKey} ->
 							{NewChildNode, NewBrother, NewDivKey} = borrow(ChildNode, Brother, DivKey, Side),
@@ -701,7 +699,6 @@ node_insert(Node, BtreeOrder, LChildP, RChildP, Value) ->
 			{PointersL, PointersR} = lists:split((BtreeOrder+2) div 2, NewNode#node.nodePointers),
 			NewNodeL = #node{keys = KeysL, nodePointers = PointersL},
 			NewNodeR = #node{keys = KeysR, nodePointers = PointersR},
-			io:format("~p, ~p, ~p~n", [NewNodeL, NewNodeR, NewValue]),
 			{ok, NewNodeL, NewNodeR, NewValue};
 		true ->
 			{ok, NewNode}
