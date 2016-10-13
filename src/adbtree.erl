@@ -124,6 +124,127 @@ btree_insert(Fp, Btree = #btree{curNode = PNode}, Settings, Key, PosDoc, Version
 	end.
 
 
+%delete the document identified with key
+delete(Key, DBName) ->
+	try
+		NameIndex = DBName++"Index.adb",
+		{ok, Fp} = file:open(NameIndex, [read, write, binary]),
+		{Settings, Btree} = get_header(Fp),
+		{ok, NewRoot} = delete(Fp, Btree, Settings, Key),
+		write_header(Fp, Settings, Btree, NewRoot),
+		file:close(Fp)
+	catch
+		error:Error ->
+			{error, Error}
+	end.
+
+delete(Fp, Btree = #btree{order=BtreeOrder, curNode=PNode}, Settings, Key) ->
+	file:position(Fp, {bof, PNode}),
+	{ok, Type} = file:read(Fp, 1),
+	case Type of
+		<<?Leaf:1/unit:8>> ->
+			Leaf = read_leaf(Fp, Settings, Btree),
+			{_, NewLeaf} = delete_from_leaf(Leaf, Key, BtreeOrder),
+			write_leaf(Fp, Settings, Btree, NewLeaf);
+		<<?Node:1/unit:8>> ->
+			Node = read_node(Fp, Btree),
+			NextNodeP = find_next_node(Node, Key),
+			case btree_delete(Fp, Btree#btree{curNode=NextNodeP}, Settings, Key) of
+				{ok, ChildNode} ->
+					if
+						is_record(ChildNode, node) ->
+							{ok, PChildNode} = write_node(Fp, Btree, ChildNode);
+						true ->
+							{ok, PChildNode} = write_leaf(Fp, Settings, Btree, ChildNode)
+					end,
+					NewNode = update_reference(Node, Key, PChildNode),
+					write_node(Fp, Btree, NewNode);
+				{lacking, ChildNode} ->
+					case find_brother(Fp, Node, Key, Settings, Btree) of
+						{Side, Brother, DivKey} when length(Brother#node.keys) == (BtreeOrder-1) div 2 ->
+							io:format("entrei"),
+							NewChildNode = merge(ChildNode, Brother, DivKey, Side),
+							{ok, PChildNode} = write_node(Fp, Btree, NewChildNode),
+							case delete_key_and_update(Node, DivKey, PChildNode, Btree#btree.order) of
+								{_, NewNode} when length(NewNode#node.keys) == 0 ->
+									{ok, PChildNode};
+								{_, NewNode} ->
+									write_node(Fp, Btree, NewNode)
+							end;
+						{Side, Brother, DivKey} when length(Brother#leaf.keys) == (BtreeOrder-1) div 2 ->
+							NewChildNode = merge(ChildNode, Brother, DivKey, Side),
+							{ok, PChildNode} = write_leaf(Fp, Settings, Btree, NewChildNode),
+							case delete_key_and_update(Node, DivKey, PChildNode, Btree#btree.order) of
+								{_, NewNode} when length(NewNode#node.keys) == 0 ->
+									{ok, PChildNode};
+								{_, NewNode} ->
+									write_node(Fp, Btree, NewNode)
+							end;
+						{Side, Brother, DivKey} ->
+							{NewChildNode, NewBrother, NewDivKey} = borrow(ChildNode, Brother, DivKey, Side),
+							if
+								is_record(NewChildNode, node) ->
+									{ok, PChildNode} = write_node(Fp, Btree, NewChildNode),
+									{ok, PBrother} = write_node(Fp, Btree, NewBrother);
+								true ->
+									{ok, PChildNode} = write_leaf(Fp, Settings, Btree, NewChildNode),
+									{ok, PBrother} = write_leaf(Fp, Settings, Btree, NewBrother)
+							end,
+							{ok, NewNode} = update_key_and_references(Node, PChildNode, PBrother, NewDivKey, DivKey, Side),
+							write_node(Fp, Btree, NewNode)
+					end
+			end				
+	end.
+
+
+btree_delete(Fp, Btree = #btree{curNode = PNode, order=BtreeOrder}, Settings, Key) ->
+	file:position(Fp, {bof, PNode}),
+	{ok, Type} = file:read(Fp, 1),
+	case Type of
+		<<?Leaf:1/unit:8>> ->
+			Leaf = read_leaf(Fp, Settings, Btree),
+			delete_from_leaf(Leaf, Key, BtreeOrder);
+		<<?Node:1/unit:8>> ->
+			Node = read_node(Fp, Btree),
+			NextNodeP = find_next_node(Node, Key),
+			case btree_delete(Fp, Btree#btree{curNode=NextNodeP}, Settings, Key) of
+				{ok, ChildNode} ->
+					if
+						is_record(ChildNode, node) ->
+							{ok, PChildNode} = write_node(Fp, Btree, ChildNode);
+						true ->
+							{ok, PChildNode} = write_leaf(Fp, Settings, Btree, ChildNode)
+					end,
+					NewNode = update_reference(Node, Key, PChildNode),
+					{ok, NewNode};
+				{lacking, ChildNode} -> 
+					case find_brother(Fp, Node, Key, Settings, Btree) of
+						{Side, Brother, DivKey} when length(Brother#node.keys) == (BtreeOrder-1) div 2 ->
+							NewChildNode = merge(ChildNode, Brother, DivKey, Side),
+							{ok, PChildNode} = write_node(Fp, Btree, NewChildNode),
+							delete_key_and_update(Node, DivKey, PChildNode, Btree#btree.order);
+						
+						{Side, Brother, DivKey} when length(Brother#leaf.keys) == (BtreeOrder-1) div 2 ->
+							NewChildNode = merge(ChildNode, Brother, DivKey, Side),
+							{ok, PChildNode} = write_leaf(Fp, Settings, Btree, NewChildNode),
+							io:format("entrei2"),
+							delete_key_and_update(Node, DivKey, PChildNode, Btree#btree.order);				
+						{Side, Brother, DivKey} ->
+							{NewChildNode, NewBrother, NewDivKey} = borrow(ChildNode, Brother, DivKey, Side),
+							if
+								is_record(NewChildNode, node) ->
+									{ok, PChildNode} = write_node(Fp, Btree, NewChildNode),
+									{ok, PBrother} = write_node(Fp, Btree, NewBrother);
+								true ->
+									{ok, PChildNode} = write_leaf(Fp, Settings, Btree, NewChildNode),
+									{ok, PBrother} = write_leaf(Fp, Settings, Btree, NewBrother)
+							end,
+							update_key_and_references(Node, PChildNode, PBrother, NewDivKey, DivKey, Side)
+					end 
+
+			end
+	end.
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	Area where the lookup and update functions will take place. Now functional.
@@ -267,6 +388,114 @@ update_list(_, _, []) ->
 
 %Operations with files, nodes and leaves and header
 
+update_key_and_references([Key|Keys], [Pointer, Brother | Pointers], PChildNode, PBrother, DivKey, OldKey, Side) ->
+	if 
+		(OldKey == Key) and (Side == right) ->
+			{[DivKey|Keys], [PChildNode, PBrother|Pointers]};
+		(OldKey == Key) and (Side == left) and (Pointers == []) ->
+			{[DivKey], [PBrother, PChildNode]};
+		true ->
+			{TempKeys, TempPointers} = update_key_and_references(Keys, [Brother|Pointers], PChildNode, PBrother, DivKey, OldKey, Side),
+			{[Key|TempKeys], [Pointer|TempPointers]}
+	end.
+
+update_key_and_references(#node{keys=Keys, nodePointers=Pointers}, PChildNode, PBrother, DivKey, OldKey, Side) ->
+	{NewKeys, NewPointers} = update_key_and_references(Keys, Pointers, PChildNode, PBrother, DivKey, OldKey, Side),
+	{ok, #node{keys=NewKeys, nodePointers=NewPointers}}.
+
+borrow(#node{keys=Keys, nodePointers=Pointers}, #node{keys=[NewDiv|BKeys], nodePointers=[BorrowedChild|BPointers]}, DivKey, right) ->
+	{#node{keys=Keys++[DivKey], nodePointers=Pointers++[BorrowedChild]}, #node{keys=BKeys, nodePointers=BPointers}, NewDiv};
+
+borrow(#node{keys=Keys, nodePointers=Pointers}, #node{keys=BKeys, nodePointers=BPointers}, DivKey, left) ->
+	{#node{keys=[DivKey]++Keys, nodePointers=[lists:last(BPointers)]++Pointers}, #node{keys=lists:droplast(BKeys), nodePointers=lists:droplast(BPointers)}, lists:last(BKeys)};
+
+borrow(#leaf{keys=Keys, docPointers=Pointers, versions=Versions}, #leaf{keys=[BorrowedKey, NewDiv|BKeys], docPointers=[BorrowedPointer|BPointers], versions=[BorrowedVersion|BVersions]}, _DivKey, right) -> 
+	{#leaf{keys=Keys++[BorrowedKey], versions=Versions++[BorrowedVersion], docPointers=Pointers++[BorrowedPointer], leafPointer=-1},
+	#leaf{keys=[NewDiv|BKeys], versions=BVersions, docPointers=BPointers, leafPointer=-1}, NewDiv};
+
+borrow(#leaf{keys=Keys, docPointers=Pointers, versions=Versions}, #leaf{keys=BKeys, docPointers=BPointers, versions=BVersions}, _DivKey, left) -> 
+	{#leaf{keys=[lists:last(BKeys)]++Keys, versions=[lists:last(BVersions)]++Versions, docPointers=[lists:last(BPointers)]++Pointers, leafPointer=-1},
+	#leaf{keys=lists:droplast(BKeys), versions=lists:droplast(BVersions), docPointers=lists:droplast(BPointers), leafPointer=-1}, lists:last(BKeys)}.
+
+find_brother([], [_Pointer], _Key) ->
+	{left};
+
+find_brother([CurKey|Keys], [Pointer, RBrother|Pointers], Key) ->
+	if
+		Key < CurKey ->
+			{right, RBrother, CurKey};
+		true ->
+			case find_brother(Keys, [RBrother|Pointers], Key) of
+				{left} ->
+					{left, Pointer, CurKey};
+				T ->
+					T
+			end
+	end.
+
+find_brother(Fp, #node{keys=Keys, nodePointers=Pointers}, Key, Settings, Btree) ->
+	{Side, PBrother, DivKey} = find_brother(Keys, Pointers, Key),
+	file:position(Fp, {bof, PBrother}),
+	{ok, Type} = file:read(Fp, 1),
+	case Type of
+		<<?Leaf:1/unit:8>> ->
+			Brother = read_leaf(Fp, Settings, Btree);
+		<<?Node:1/unit:8>> ->
+			Brother = read_node(Fp, Btree)
+	end,
+	{Side, Brother, DivKey}.
+
+delete_key_and_update([Key|Keys], [Pointer, Brother|Pointers], DivKey, PChildNode) ->
+	if
+		DivKey == Key ->
+			{Keys, [PChildNode|Pointers]};
+		true ->
+			{TempKeys, TempPointers} = delete_key_and_update(Keys, [Brother|Pointers], DivKey, PChildNode),
+			{[Key|TempKeys], [Pointer|TempPointers]}
+	end;
+
+delete_key_and_update(#node{keys=Keys, nodePointers = Pointers}, DivKey, PChildNode, BtreeOrder) ->
+	{NewKeys, NewPointers} = delete_key_and_update(Keys, Pointers, DivKey, PChildNode),
+	if
+		length(NewKeys) < (BtreeOrder-1) div 2 ->
+			{lacking, #node{keys=NewKeys, nodePointers = NewPointers}};
+		true ->
+			{ok, #node{keys=NewKeys, nodePointers = NewPointers}}
+	end.
+
+delete_from_leaf([], _, _, _) ->
+	error(keyUnused);
+delete_from_leaf([CurKey|Keys], [Pointer|Pointers], [Version|Versions], Key) ->
+	if
+		CurKey == Key ->
+			{Keys,Pointers,Versions};
+		true ->
+			{TempKeys, TempPointers, TempVersions} = delete_from_leaf(Keys, Pointers, Versions, Key),
+			{[CurKey|TempKeys],[Pointer|TempPointers],[Version|TempVersions]}
+	end.
+
+delete_from_leaf(Leaf = #leaf{keys=Keys, docPointers=Pointers, versions=Versions}, Key, BtreeOrder) ->
+	{NewKeys, NewPointers, NewVersions} = delete_from_leaf(Keys, Pointers, Versions, Key),
+	if
+		length(NewKeys) < ((BtreeOrder-1) div 2) ->
+			{lacking, Leaf#leaf{keys=NewKeys, docPointers=NewPointers, versions=NewVersions}};
+		true ->
+			{ok, Leaf#leaf{keys=NewKeys, docPointers=NewPointers, versions=NewVersions}}
+	end.
+
+merge(#leaf{versions=Versions1, keys = Keys1, docPointers=Pointers1}, #leaf{versions=Versions2, keys = Keys2, docPointers=Pointers2}, _, right) ->
+	#leaf{versions=Versions1++Versions2, keys=Keys1++Keys2, docPointers = Pointers1++Pointers2, leafPointer = -1};
+merge(#leaf{versions=Versions1, keys = Keys1, docPointers=Pointers1}, #leaf{versions=Versions2, keys = Keys2, docPointers=Pointers2}, _, left) ->
+	#leaf{versions=Versions2++Versions1, keys=Keys2++Keys1, docPointers = Pointers2++Pointers1, leafPointer = -1};
+
+
+merge(#node{keys=Keys1, nodePointers=Pointers1}, #node{keys=Keys2, nodePointers=Pointers2}, DivKey, right) ->
+	#node{keys=Keys1++[DivKey|Keys2], nodePointers=Pointers1++Pointers2};
+merge(#node{keys=Keys1, nodePointers=Pointers1}, #node{keys=Keys2, nodePointers=Pointers2}, DivKey, left) ->
+	#node{keys=Keys2++[DivKey|Keys1], nodePointers=Pointers2++Pointers1}.
+
+
+
 pretty_printer(Name) ->
 	try
 		NameIndex = Name++"Index.adb",
@@ -351,7 +580,7 @@ find_next_node([CurKey | Keys], [Pointer | Pointers], NewKey) ->
 			find_next_node(Keys, Pointers, NewKey)
 	end.
 	
-%header must be in end of file
+%header must be in begin of file
 write_header(Fp, #dbsettings{dbname=Name, sizeversion=SizeOfVersion, sizeinbytes=SizeOfSizeOfDoc}, #btree{order=BtreeOrder}, RootPointer) ->
 	file:position(Fp, bof),
 	NameBin = list_to_binary(lists:duplicate((40 - length(Name)), 0)++Name),
