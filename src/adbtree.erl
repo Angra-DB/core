@@ -2,6 +2,48 @@
 -include("adbtree.hrl").
 -compile(export_all).
 
+
+start(DBName) ->
+	Pid = spawn(adbtree, btree_device, [DBName]),
+	{ok, Pid}.
+
+btree_device(DBName) ->
+	Reader = spawn(adbtree, reader, [DBName]),
+	Modifier = spawn(adbtree, modifier, [DBName]),
+
+	receive
+		{Sender, {lookup, Key}} ->
+			Reader ! {Sender, {lookup, Key}},
+			btree_device(DBName);
+		{Sender, {create, SizeOfSizeOfDoc, SizeOfVersion, BtreeOrder}} ->
+			create_db(DBName, SizeOfSizeOfDoc, SizeOfVersion, BtreeOrder),
+			btree_device(DBName);
+		{Sender, T} ->
+			Modifier ! {Sender, T},
+			btree_device(DBName)
+	end.
+
+reader(DBName) ->
+	receive
+		{Sender, lookup, Key} ->
+			Sender ! {lookup(Key, DBName)},
+			reader(DBName)
+	end.
+
+modifier(DBName) ->
+	receive
+		{Sender, {update, Doc, Key}} ->
+			Sender ! {update(Doc, Key, DBName)},
+			modifier(DBName);
+		{Sender, {insert, Doc, Key}} ->
+			Sender ! {insert(Doc, Key, DBName)},
+			modifier(DBName)%;
+	%	{Sender, {delete, Doc, Key}} ->
+	%		Sender ! {update(Doc, Key, DBName),
+	%		modifier(DBName)
+	end.
+
+
 %	Função que lê um documento do arquivo de documentos. Recebe como parâmetro: *parâmetros* . Retorna: *retorno*.
 %	A function that reads a document from the document's file. Receives as attribute: *attribute*. Returns: *return value*.
 read_doc(PosInBytes, Settings) -> 
@@ -257,7 +299,7 @@ btree_delete(Fp, Btree = #btree{curNode = PNode, order=BtreeOrder}, Settings, Ke
 lookup(Key, DBName) ->
 	try
 		NameIndex = DBName++"Index.adb",
-		{ok, Fp} = file:open(NameIndex, [read, write, binary]),
+		{ok, Fp} = file:open(NameIndex, [read, binary]),
 		{Settings, Btree} = get_header(Fp),
 		TargetDoc = btree_lookup(Fp, Settings, Btree, Key),
 		Doc = read_doc(TargetDoc, Settings),
@@ -588,11 +630,16 @@ write_header(Fp, #dbsettings{dbname=Name, sizeversion=SizeOfVersion, sizeinbytes
 %Given a file pointer, return the DBSettings and Btree
 get_header(Fp) ->
 	file:position(Fp, bof),
-	{ok, Header} = file:read(Fp, ?SizeOfHeader),
-	<<Name:40/binary, SizeOfSize:?SizeOfSize/unit:8, SizeOfVersion:?SizeOfSize/unit:8, BtreeOrder:?OrderSize/unit:8, RootPointer:?SizeOfPointer/unit:8>> = Header,
-	Settings = #dbsettings{dbname=lists:dropwhile(fun(X) -> X == 0 end, binary:bin_to_list(Name)), sizeinbytes=SizeOfSize, sizeversion=SizeOfVersion},
-	Btree = #btree{order = BtreeOrder, curNode = RootPointer},
-	{Settings, Btree}.
+	case file:read(Fp, ?SizeOfHeader) of
+		{ok, Header} ->
+			<<Name:40/binary, SizeOfSize:?SizeOfSize/unit:8, SizeOfVersion:?SizeOfSize/unit:8, BtreeOrder:?OrderSize/unit:8, RootPointer:?SizeOfPointer/unit:8>> = Header,
+			Settings = #dbsettings{dbname=lists:dropwhile(fun(X) -> X == 0 end, binary:bin_to_list(Name)), sizeinbytes=SizeOfSize, sizeversion=SizeOfVersion},
+			Btree = #btree{order = BtreeOrder, curNode = RootPointer},
+			{Settings, Btree};
+		eof ->
+			error(invalidDB)
+	end.
+
 
 leaf_to_bin(#leaf{keys=Keys, docPointers=DocPointers, leafPointer=LeafPointer, versions=Versions}, SizeOfVersion, BtreeOrder) ->
 	KeysExt = complete_list(Keys, BtreeOrder-1),
