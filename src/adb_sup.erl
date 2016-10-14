@@ -12,7 +12,7 @@
 -behavior(supervisor). 
 
 %% API
--export([start_link/1, start_child/0]).
+-export([start_link/1, start_link/2, start_child/0]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -20,8 +20,10 @@
 -define(SERVER, ?MODULE).
 
 start_link(LSock) ->
-    lager:info("starting the ets table", []),
-    _Docs = ets:new(docs, [set, public, named_table]),   
+    start_link(LSock, []).
+
+start_link(LSock, Args) ->
+    setup_persistence(Args),
     supervisor:start_link({local, ?SERVER}, ?MODULE,[LSock]).
 
 start_child() ->
@@ -34,3 +36,10 @@ init([LSock]) ->
     RestartStrategy = {simple_one_for_one, 0, 1},  % {How, Max, Within} ... Max restarts within a period
     {ok, {RestartStrategy, Children}}. 
  
+setup_persistence(Args) ->
+    lager:info("Setting up the persistence module.", []),
+    case proplists:get_value(persistence, Args) of
+      hanoidb -> lager:info("Starting HanoiDB");
+      ets     -> lager:info("Starting ets"),
+                 _Docs = ets:new(docs, [set, public, named_table])
+    end.
