@@ -91,7 +91,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 process_request(Socket, RawData) ->
     try 
-      Tokens = split(preprocess(RawData)),
+      Tokens = preprocess(RawData),
       evaluate_request(Socket, Tokens)
     catch
       _Class:Err -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Err]))	
@@ -113,8 +113,10 @@ evaluate_request(Socket, Tokens) ->
     end.
 
 preprocess(RawData) ->
-    Rev = lists:reverse(RawData),
-    lists:reverse(lists:dropwhile(fun(C) -> (C == $\n) or (C == $\r) end, Rev)). 
+    _reverse = lists:reverse(RawData),
+    Pred = fun(C) -> (C == $\n) or (C == $\r) end,
+    _trim = lists:reverse(lists:dropwhile(Pred, _reverse)),
+    split(_trim).
 					   		    
 split(Str) ->
     Stripped = string:strip(Str),
