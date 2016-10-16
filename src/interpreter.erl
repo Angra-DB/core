@@ -1,9 +1,13 @@
 -module(interpreter).
 
--export([process_request/2 , process_request/3]).
+-export([process_request/0, process_request/2 , process_request/3]).
 
+insert(Value) ->
+    Key = gen_id(), 
+    insert(Key, Value).
 insert(Key, Value) ->
-    ets:insert(docs, {Key, Value}).
+    ets:insert(docs, {Key, Value}),
+    Key.
 
 lookup(Key) -> 
     ets:lookup(docs, Key).
@@ -13,7 +17,26 @@ delete(Key) ->
 
 update(Key, Value) ->
     delete(Key),
-        insert(Key,Value).
+    insert(Key,Value).
+
+process_request() ->
+    receive
+        {_From, save, Doc}        -> _From ! process_request(save, Doc);
+        {_From, lookup, Key}      -> _From ! process_request(lookup, Key);
+        {_From, delete, Key}      -> _From ! process_request(delete, Key);
+        {_From, update, Key, Doc} -> _From ! process_request(update, Key, Doc);
+        _ -> throw(invalid_command)
+    end.
+
+process_request(save, Document) ->
+    {save, insert(Document)};
+process_request(lookup, Key) ->
+    {lookup, lookup(Key)};
+process_request(delete, Key) ->
+    {delete, delete(Key)}.
+process_request(update, Key, Document) ->
+    {update, update(Key, Document)}.
+
 gen_id() ->
     Time=erlang:system_time(nano_seconds),
     StringTime=integer_to_list(Time),
@@ -22,25 +45,3 @@ gen_id() ->
     {Id, _} = string:to_integer(StringRandom++StringTime),
     Ctx = hashids:new([{salt, "AngraDB"}, {min_hash_length, 1}, {default_alphabet, "ABCDEF0123456789"}]),
     hashids:encode(Ctx, Id).
-
-process_request(save, Document) ->
-    Id = gen_id(), 
-    insert(Id, Document),
-    {ok, Id};
-process_request(lookup, Key) ->
-    lookup(Key);
-process_request(delete, Key) ->
-    delete(Key).
-
-process_request(update, Key, Document) ->
-    update(Key, Document).
-
-%% execute() ->
-%%     receive 
-%% 	{From, {[save, Document]}} -> 
-%%             Id = gen_id(), 
-%% 	    insert(Id, Document),
-%%             From ! {self(), ok, Id};
-%%         {From, {[lookup, Key]}} -> 
-%% 	    From ! {self(), lookup(Key)}
-%%     end.

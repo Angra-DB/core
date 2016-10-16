@@ -24,14 +24,14 @@ start_link(LSock) ->
 
 start_link(LSock, Args) ->
     setup_persistence(Args),
-    supervisor:start_link({local, ?SERVER}, ?MODULE,[LSock]).
+    supervisor:start_link({local, ?SERVER}, ?MODULE, [LSock]).
 
 start_child() ->
     supervisor:start_child(?SERVER, []).
 
 init([LSock]) ->
     Server = {adb_server, {adb_server, start_link, [LSock]}, % {Id, Start, Restart, ... }  
-	      temporary, brutal_kill, worker,[adb_server]},    
+	      temporary, brutal_kill, worker, [adb_server]},
     Children = [Server], 
     RestartStrategy = {simple_one_for_one, 0, 1},  % {How, Max, Within} ... Max restarts within a period
     {ok, {RestartStrategy, Children}}. 

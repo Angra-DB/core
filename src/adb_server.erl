@@ -91,28 +91,31 @@ code_change(_OldVsn, State, _Extra) ->
 
 process_request(Socket, RawData) ->
     try 
-	parse_and_process_request(Socket, RawData)
+      Tokens = split(preprocess(RawData)),
+      evaluate_request(Socket, Tokens)
     catch
-       _Class:Err -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Err]))	
+      _Class:Err -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Err]))	
+    end.
+
+evaluate_request(Socket, Tokens) ->
+    Interpreter = spawn(interpreter, process_request, []),
+    case Tokens of
+         {"save", Doc}    -> Interpreter ! {self(), save, Doc};
+         {"lookup", Key}  -> Interpreter ! {self(), lookup, Key};
+         {"delete", Key}  -> Interpreter ! {self(), delete, Key};
+         {"update", Args} -> {Key, Doc} = split(Args),
+                             Interpreter ! {self(), update, Key, Doc};
+         _ -> throw(invalid_command)
+    end,
+    receive
+      {_, _Response} ->
+        gen_tcp:send(Socket, io_lib:fwrite("~p~n", [_Response]))
     end.
 
 preprocess(RawData) ->
     Rev = lists:reverse(RawData),
     lists:reverse(lists:dropwhile(fun(C) -> (C == $\n) or (C == $\r) end, Rev)). 
 					   		    
-parse_and_process_request(Socket, RawData) ->    
-    Tokens = split(preprocess(RawData)),
-    Response = case Tokens of 
-	{"save", Doc}    -> interpreter:process_request(save, Doc);
-	{"lookup", Key}  -> interpreter:process_request(lookup, Key);
-	{"delete", Key}  -> interpreter:process_request(delete, Key);
-	{"update", Args} -> {Key, Doc} = split(Args), 
-			    interpreter:process_request(update, Key, Doc);
-	_ -> throw(invalid_command)		    
-    end,
-    gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Response])).
-    
-
 split(Str) ->
     Stripped = string:strip(Str),
     Pred = fun(A) -> A =/= $  end,
