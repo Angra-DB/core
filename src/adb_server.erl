@@ -100,12 +100,10 @@ process_request(Socket, RawData) ->
 evaluate_request(Socket, Tokens) ->
     Interpreter = spawn(interpreter, process_request, []),
     case Tokens of
-         {"save", Doc}    -> Interpreter ! {self(), save, Doc};
-         {"lookup", Key}  -> Interpreter ! {self(), lookup, Key};
-         {"delete", Key}  -> Interpreter ! {self(), delete, Key};
-         {"update", Args} -> {Key, Doc} = split(Args),
-                             Interpreter ! {self(), update, Key, Doc};
-         _ -> throw(invalid_command)
+         {"save", Doc}        -> Interpreter ! {self(), save, Doc};
+         {"lookup", Key}      -> Interpreter ! {self(), lookup, Key};
+         {"delete", Key}      -> Interpreter ! {self(), delete, Key};
+         {"update", Key, Doc} -> Interpreter ! {self(), update, Key, Doc}
     end,
     receive
       {_, _Response} ->
@@ -116,8 +114,17 @@ preprocess(RawData) ->
     _reverse = lists:reverse(RawData),
     Pred = fun(C) -> (C == $\n) or (C == $\r) end,
     _trim = lists:reverse(lists:dropwhile(Pred, _reverse)),
-    split(_trim).
-					   		    
+    {Command, Args} = split(_trim),
+    case filter_command(Command) of
+      []         -> throw(invalid_command);
+      ["update"] -> erlang:insert_element(1, split(Args), Command);
+      _          -> {Command, Args}
+    end.
+
+filter_command(Command) ->
+    ValidCommands = ["save", "lookup", "update", "delete"],
+    [X || X <- ValidCommands, X =:= Command].
+
 split(Str) ->
     Stripped = string:strip(Str),
     Pred = fun(A) -> A =/= $  end,
