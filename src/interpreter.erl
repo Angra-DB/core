@@ -21,11 +21,10 @@ update(Key, Value) ->
 
 process_request() ->
     receive
-        {_From, save, Doc}        -> _From ! process_request(save, Doc);
-        {_From, lookup, Key}      -> _From ! process_request(lookup, Key);
-        {_From, delete, Key}      -> _From ! process_request(delete, Key);
-        {_From, update, Key, Doc} -> _From ! process_request(update, Key, Doc);
-        _ -> throw(invalid_command)
+        {_From, save, Doc}          -> _From ! process_request(save, Doc);
+        {_From, lookup, Key}        -> _From ! process_request(lookup, Key);
+        {_From, delete, Key}        -> _From ! process_request(delete, Key);
+        {_From, update, {Key, Doc}} -> _From ! process_request(update, Key, Doc)
     end.
 
 process_request(save, Document) ->

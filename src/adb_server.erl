@@ -97,14 +97,9 @@ process_request(Socket, RawData) ->
       _Class:Err -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Err]))	
     end.
 
-evaluate_request(Socket, Tokens) ->
+evaluate_request(Socket, {Command, Args}) ->
     Interpreter = spawn(interpreter, process_request, []),
-    case Tokens of
-         {"save", Doc}        -> Interpreter ! {self(), save, Doc};
-         {"lookup", Key}      -> Interpreter ! {self(), lookup, Key};
-         {"delete", Key}      -> Interpreter ! {self(), delete, Key};
-         {"update", Key, Doc} -> Interpreter ! {self(), update, Key, Doc}
-    end,
+    Interpreter ! {self(), list_to_atom(Command), Args},
     receive
       {_, _Response} ->
         gen_tcp:send(Socket, io_lib:fwrite("~p~n", [_Response]))
@@ -117,7 +112,7 @@ preprocess(RawData) ->
     {Command, Args} = split(_trim),
     case filter_command(Command) of
       []         -> throw(invalid_command);
-      ["update"] -> erlang:insert_element(1, split(Args), Command);
+      ["update"] -> {Command, split(Args)};
       _          -> {Command, Args}
     end.
 
