@@ -43,5 +43,6 @@ setup_persistence(Args) ->
                             persistence configuration."),
                  throw(invalid_persistence);
       ets     -> lager:info("Starting ets"),
-                 _Docs = ets:new(docs, [set, public, named_table])
+                 _Docs = ets:new(docs, [set, public, named_table]),
+                 ets_persistence
     end.
