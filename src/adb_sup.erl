@@ -39,7 +39,9 @@ init([LSock]) ->
 setup_persistence(Args) ->
     lager:info("Setting up the persistence module.", []),
     case proplists:get_value(persistence, Args) of
-      hanoidb -> lager:info("Starting HanoiDB");
+      hanoidb -> lager:info("HanoiDB still not supported. Please verify your
+                            persistence configuration."),
+                 throw(invalid_persistence);
       ets     -> lager:info("Starting ets"),
                  _Docs = ets:new(docs, [set, public, named_table])
     end.
