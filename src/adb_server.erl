@@ -91,27 +91,34 @@ code_change(_OldVsn, State, _Extra) ->
 
 process_request(Socket, RawData) ->
     try 
-	parse_and_process_request(Socket, RawData)
+      Tokens = preprocess(RawData),
+      evaluate_request(Socket, Tokens)
     catch
-       _Class:Err -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Err]))	
+      _Class:Err -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Err]))	
+    end.
+
+evaluate_request(Socket, {Command, Args}) ->
+    Interpreter = spawn(ets_persistence, list_to_atom(Command), []),
+    Interpreter ! {self(), Args},
+    receive
+      {_, _Response} ->
+        gen_tcp:send(Socket, io_lib:fwrite("~p~n", [_Response]))
     end.
 
 preprocess(RawData) ->
-    Rev = lists:reverse(RawData),
-    lists:reverse(lists:dropwhile(fun(C) -> (C == $\n) or (C == $\r) end, Rev)). 
-					   		    
-parse_and_process_request(Socket, RawData) ->    
-    Tokens = split(preprocess(RawData)),
-    Response = case Tokens of 
-	{"save", Doc}    -> interpreter:process_request(save, Doc);
-	{"lookup", Key}  -> interpreter:process_request(lookup, Key);
-	{"delete", Key}  -> interpreter:process_request(delete, Key);
-	{"update", Args} -> {Key, Doc} = split(Args), 
-			    interpreter:process_request(update, Key, Doc);
-	_ -> throw(invalid_command)		    
-    end,
-    gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Response])).
-    
+    _reverse = lists:reverse(RawData),
+    Pred = fun(C) -> (C == $\n) or (C == $\r) end,
+    _trim = lists:reverse(lists:dropwhile(Pred, _reverse)),
+    {Command, Args} = split(_trim),
+    case filter_command(Command) of
+      []         -> throw(invalid_command);
+      ["update"] -> {Command, split(Args)};
+      _          -> {Command, Args}
+    end.
+
+filter_command(Command) ->
+    ValidCommands = ["save", "lookup", "update", "delete"],
+    [X || X <- ValidCommands, X =:= Command].
 
 split(Str) ->
     Stripped = string:strip(Str),
