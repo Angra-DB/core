@@ -17,7 +17,7 @@
 % API functions
 %
 
--export([ start_link/1
+-export([ start_link/2
 	, get_count/0   % we can understand both get_count and stop as adm operations
 	, stop/0]).
 
@@ -35,7 +35,7 @@
 
 -define(SERVER, ?MODULE).      % declares a SERVER macro constant (?MODULE is the module's name) 
 
--record(state, {lsock, request_count = 0}). % a record for keeping the server state
+-record(state, {lsock, persistence, request_count = 0}). % a record for keeping the server state
 
 %%%======================================================
 %%% API
@@ -46,8 +46,8 @@
 %%% is a bit trick. 
 %%%======================================================
 
-start_link(LSock) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [LSock], []).
+start_link(LSock, Persistence) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [LSock, Persistence], []).
 			  
 get_count() ->
     gen_server:call(?SERVER, get_count).
@@ -59,8 +59,8 @@ stop() ->
 %%% gen_server callbacks
 %%%===========================================
 
-init([LSock]) ->
-    {ok, #state{lsock = LSock}, 0}.
+init([LSock, Persistence]) ->
+    {ok, #state{lsock = LSock, persistence = Persistence}, 0}.
 
 handle_call(get_count, _From, State) ->
      {reply, {ok, State#state.request_count}, State};
@@ -71,7 +71,7 @@ handle_cast(stop, State) ->
     {stop, normal, State}.
 
 handle_info({tcp, Socket, RawData}, State) -> 
-    process_request(Socket, RawData),
+    process_request(Socket, State#state.persistence, RawData),
     RequestCount = State#state.request_count,
     {noreply,State#state{request_count = RequestCount + 1}};
 
@@ -89,16 +89,16 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}. 
 
-process_request(Socket, RawData) ->
+process_request(Socket, Persistence, RawData) ->
     try 
       Tokens = preprocess(RawData),
-      evaluate_request(Socket, Tokens)
+      evaluate_request(Socket, Persistence, Tokens)
     catch
       _Class:Err -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Err]))	
     end.
 
-evaluate_request(Socket, {Command, Args}) ->
-    Interpreter = spawn(ets_persistence, list_to_atom(Command), []),
+evaluate_request(Socket, Persistence, {Command, Args}) ->
+    Interpreter = spawn(Persistence, list_to_atom(Command), []),
     Interpreter ! {self(), Args},
     receive
       {_, _Response} ->

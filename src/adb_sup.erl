@@ -23,14 +23,14 @@ start_link(LSock) ->
     start_link(LSock, []).
 
 start_link(LSock, Args) ->
-    setup_persistence(Args),
-    supervisor:start_link({local, ?SERVER}, ?MODULE, [LSock]).
+    Persistence = setup_persistence(Args),
+    supervisor:start_link({local, ?SERVER}, ?MODULE, [LSock, Persistence]).
 
 start_child() ->
     supervisor:start_child(?SERVER, []).
 
-init([LSock]) ->
-    Server = {adb_server, {adb_server, start_link, [LSock]}, % {Id, Start, Restart, ... }  
+init([LSock, Persistence]) ->
+    Server = {adb_server, {adb_server, start_link, [LSock, Persistence]}, % {Id, Start, Restart, ... }
 	      temporary, brutal_kill, worker, [adb_server]},
     Children = [Server], 
     RestartStrategy = {simple_one_for_one, 0, 1},  % {How, Max, Within} ... Max restarts within a period
@@ -39,10 +39,9 @@ init([LSock]) ->
 setup_persistence(Args) ->
     lager:info("Setting up the persistence module.", []),
     case proplists:get_value(persistence, Args) of
-      hanoidb -> lager:info("HanoiDB still not supported. Please verify your
-                            persistence configuration."),
-                 throw(invalid_persistence);
-      ets     -> lager:info("Starting ets"),
+      hanoidb -> lager:info("Starting HanoiDB..."),
+                 hanoidb_persistence;
+      ets     -> lager:info("Starting ets..."),
                  _Docs = ets:new(docs, [set, public, named_table]),
                  ets_persistence
     end.
