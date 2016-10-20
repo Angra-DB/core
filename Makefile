@@ -3,3 +3,6 @@ compile:
 
 tests:
 	erlc -o ebin src/*.erl test/*.erl
+
+deps:
+	cd _build/default/lib/ebloom && ./rebar compile && cd -
