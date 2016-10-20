@@ -8,8 +8,9 @@ read_doc(PosInBytes, Settings) ->
 	{ok, Fp} = file:open((Settings#dbsettings.dbname ++ "Docs.adb"), [read, binary]),
 	{ok, _NP} = file:position(Fp, {bof, PosInBytes}),
 	SizeSize = Settings#dbsettings.sizeinbytes,
+	SizeOfVersion = Settings#dbsettings.sizeversion,
 	{ok, <<DocSize:SizeSize/unit:8>>} = file:read(Fp, Settings#dbsettings.sizeinbytes),
-	{ok, Version} = file:read(Fp, Settings#dbsettings.sizeversion),
+	{ok, <<Version:SizeOfVersion/unit:8>>} = file:read(Fp, Settings#dbsettings.sizeversion),
 	{ok, Doc} = file:read(Fp, DocSize),
 	file:close(Fp),
 	{ok, Version, Doc}.
