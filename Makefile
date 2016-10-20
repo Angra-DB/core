@@ -6,3 +6,6 @@ tests:
 
 deps:
 	cd _build/default/lib/ebloom && ./rebar compile && cd -
+
+run:
+	ERL_FLAGS="-config app.config" $(REBAR) 
