@@ -6,7 +6,7 @@
  {applications, [kernel, stdlib, lager]},
  {mod, {adb_app, 
         % {persistence, ets | hanoidb}
-        [{persistence, ets}]
+        [{persistence, hanoidb}]
        }
  }
 ]}.
