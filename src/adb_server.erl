@@ -98,8 +98,8 @@ process_request(Socket, Persistence, RawData) ->
     end.
 
 evaluate_request(Socket, Persistence, {Command, Args}) ->
-    Interpreter = spawn(Persistence, list_to_atom(Command), []),
-    Interpreter ! {self(), Args},
+    Pid = gen_persistence:start(Persistence),
+    Pid ! {self(), list_to_atom(Command), Args},
     receive
       {_, _Response} ->
         gen_tcp:send(Socket, io_lib:fwrite("~p~n", [_Response]))
