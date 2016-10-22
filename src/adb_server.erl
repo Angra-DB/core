@@ -98,7 +98,7 @@ process_request(Socket, Persistence, RawData) ->
     end.
 
 evaluate_request(Socket, Persistence, {Command, Args}) ->
-    Pid = gen_persistence:start(Persistence),
+    Pid = gen_persistence:start(Persistence, []),
     Pid ! {self(), list_to_atom(Command), Args},
     receive
       {_, _Response} ->

@@ -2,18 +2,24 @@
 
 -behaviour(gen_persistence).
 
--export([save/2, lookup/1, update/2, delete/1]).
+-export([setup/1, teardown/1, save/3, lookup/2, update/3, delete/2]).
 
-save(Key, Value) ->
+setup(_) ->
+  ok.
+
+teardown(_) ->
+  ok.
+
+save(_, Key, Value) ->
     ets:insert(docs, {Key, Value}),
     Key.
 
-lookup(Key) -> 
+lookup(_, Key) ->
     ets:lookup(docs, Key).
 
-delete(Key) ->
+delete(_, Key) ->
     ets:delete(docs, Key).
 
-update(Key, Value) ->
-    delete(Key),
-    save(Key,Value).
+update(Args, Key, Value) ->
+    delete(Args, Key),
+    save(Args, Key,Value).
