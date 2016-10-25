@@ -1,46 +1,81 @@
 -module(adbtree).
 -include("adbtree.hrl").
+%-export([start/1, save/3,lookup/2,update/3,delete/2, create_db/4, create_db/3, create_db/2, create_db/1]).
 -compile(export_all).
 
-
 start(DBName) ->
-	Pid = spawn(adbtree, btree_device, [DBName]),
-	{ok, Pid}.
+	case Fp = file:open(DBName++"Index.adb", [read]) of
+		T = {error, enoent} ->
+			T;
+		_ ->
+			file:close(Fp),
+			Reader = spawn(adbtree, reader, [DBName]),
+			Modifier = spawn(adbtree, modifier, [DBName]),
+			Pid = spawn(adbtree, btree_device, [Modifier, Reader]),
+			{ok, Pid}
+	end.
 
-btree_device(DBName) ->
-	Reader = spawn(adbtree, reader, [DBName]),
-	Modifier = spawn(adbtree, modifier, [DBName]),
-
+btree_device(Modifier, Reader) ->
 	receive
 		{Sender, {lookup, Key}} ->
 			Reader ! {Sender, {lookup, Key}},
-			btree_device(DBName);
-		{Sender, {create, SizeOfSizeOfDoc, SizeOfVersion, BtreeOrder}} ->
-			create_db(DBName, SizeOfSizeOfDoc, SizeOfVersion, BtreeOrder),
-			btree_device(DBName);
+			btree_device(Modifier, Reader);
 		{Sender, T} ->
 			Modifier ! {Sender, T},
-			btree_device(DBName)
+			btree_device(Modifier, Reader)
 	end.
 
 reader(DBName) ->
 	receive
-		{Sender, lookup, Key} ->
-			Sender ! {lookup(Key, DBName)},
+		{Sender, {lookup, Key}} ->
+			Sender ! btree_lookup(Key, DBName),
 			reader(DBName)
 	end.
 
 modifier(DBName) ->
 	receive
 		{Sender, {update, Doc, Key}} ->
-			Sender ! {update(Doc, Key, DBName)},
+			Sender ! btree_update(Doc, Key, DBName),
 			modifier(DBName);
 		{Sender, {insert, Doc, Key}} ->
-			Sender ! {insert(Doc, Key, DBName)},
-			modifier(DBName)%;
-	%	{Sender, {delete, Doc, Key}} ->
-	%		Sender ! {update(Doc, Key, DBName),
-	%		modifier(DBName)
+			Sender ! insert(Doc, Key, DBName),
+			modifier(DBName);
+		{Sender, {delete, Key}} ->
+			Sender ! btree_delete(Key, DBName),
+			modifier(DBName);
+		{Sender, _} ->
+			Sender ! invalid_operation;
+		T -> 
+			io:print("~p", [T])
+	end.
+
+save(AdbtreeDevice, Doc, Key) ->
+	AdbtreeDevice ! {self(), {insert, Doc, Key}},
+	receive
+		Answ ->
+			Answ
+	end.
+
+
+lookup(AdbtreeDevice, Key) ->
+	AdbtreeDevice ! {self(), {lookup, Key}},
+	receive
+		Answ ->
+			Answ
+	end.
+
+update(AdbtreeDevice, Doc, Key) ->
+	AdbtreeDevice ! {self(), {update, Doc, Key}},
+	receive
+		Answ ->
+			Answ
+	end.
+
+delete(AdbtreeDevice, Key) ->
+	AdbtreeDevice ! {self(), {delete, Key}},
+	receive
+		Answ ->
+			Answ
 	end.
 
 
@@ -93,8 +128,17 @@ create_db(Name, SizeOfSizeOfDoc, SizeOfVersion, BtreeOrder) ->
 		{ok, Settings}
 	catch
 		error:Error -> 
-			{caught, Error}
+			{error, Error}
 	end.
+
+create_db(Name) ->
+	create_db(Name, ?DefaultMaxSize, ?DefaultVerSize, ?DefaultOrder).
+
+create_db(Name, MaxSize) ->
+	create_db(Name, MaxSize, ?DefaultVerSize, ?DefaultOrder).
+
+create_db(Name, MaxSize, BtreeOrder) ->
+	create_db(Name, MaxSize, ?DefaultVerSize, BtreeOrder).
 
 %insert new key-value pair
 insert(Doc, Key, DBName) ->
@@ -168,7 +212,7 @@ btree_insert(Fp, Btree = #btree{curNode = PNode}, Settings, Key, PosDoc, Version
 
 
 %delete the document identified with key
-delete(Key, DBName) ->
+btree_delete(Key, DBName) ->
 	try
 		NameIndex = DBName++"Index.adb",
 		{ok, Fp} = file:open(NameIndex, [read, write, binary]),
@@ -297,7 +341,7 @@ btree_delete(Fp, Btree = #btree{curNode = PNode, order=BtreeOrder}, Settings, Ke
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
 
-lookup(Key, DBName) ->
+btree_lookup(Key, DBName) ->
 	try
 		NameIndex = DBName++"Index.adb",
 		{ok, Fp} = file:open(NameIndex, [read, binary]),
@@ -308,7 +352,7 @@ lookup(Key, DBName) ->
 		Doc
 	catch
 		error:Error ->
-			error(Error)
+			{error, Error}
 	end.
 
 btree_lookup(Fp, Settings, Btree = #btree{curNode = PNode}, Key) -> 
@@ -341,12 +385,12 @@ doc_pointer(Key, [LKey|LKeys], [PDoc|LDocPointers]) ->
 			doc_pointer(Key, LKeys, LDocPointers)
 	end;
 doc_pointer(_, [], []) ->
-	notInDB.
+	error(notInDB).
 
 
 
 
-update(Doc, Key, DBName) -> 
+btree_update(Doc, Key, DBName) -> 
 	try
 		NameIndex = DBName++"Index.adb",
 		{ok, Fp} = file:open(NameIndex, [read, write, binary]),
@@ -356,7 +400,7 @@ update(Doc, Key, DBName) ->
 		ok
 	catch
 		error:Error ->
-			error(Error)
+			{error, Error}
 	end.
 
 btree_update(Fp, Settings, Btree = #btree{curNode = PNode}, Key, Doc, IsRoot) ->

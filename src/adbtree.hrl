@@ -5,6 +5,9 @@
 -define(Node, 0).
 -define(Leaf, 1).
 -define(SizeOfSize, 8).
+-define(DefaultOrder, 5).
+-define(DefaultVerSize, 8).
+-define(DefaultMaxSize, 16).
 
 -record(dbsettings, {dbname, sizeinbytes, sizeversion}).
 
