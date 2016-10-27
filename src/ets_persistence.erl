@@ -2,18 +2,24 @@
 
 -behaviour(gen_persistence).
 
--export([save/2, lookup/1, update/2, delete/1]).
+-export([setup/1, teardown/1, save/3, lookup/2, update/3, delete/2]).
 
-save(Key, Value) ->
-    ets:insert(docs, {Key, Value}),
+setup([DBName]) ->
+  list_to_atom(DBName).
+
+teardown(_) ->
+  ok.
+
+save(Tree, Key, Value) ->
+    ets:insert(Tree, {Key, Value}),
     Key.
 
-lookup(Key) -> 
-    ets:lookup(docs, Key).
+lookup(Tree, Key) ->
+    ets:lookup(Tree, Key).
 
-delete(Key) ->
-    ets:delete(docs, Key).
+delete(Tree, Key) ->
+    ets:delete(Tree, Key).
 
-update(Key, Value) ->
-    delete(Key),
-    save(Key,Value).
+update(Tree, Key, Value) ->
+    delete(Tree, Key),
+    save(Tree, Key,Value).

@@ -2,26 +2,30 @@
 
 -behaviour(gen_persistence).
 
--export([save/2, lookup/1, update/2, delete/1]).
+-export([setup/1, teardown/1, save/3, lookup/2, update/3, delete/2]).
 
-save(Key, Value) ->
-    {ok, Tree} = hanoidb:open_link("adb"),
+setup([DBName]) ->
+    {ok, Tree} = hanoidb:open_link(DBName),
+    Tree.
+
+teardown(Tree) ->
+    hanoidb:close(Tree).
+
+save(Tree, Key, Value) ->
     hanoidb:put(Tree, list_to_binary(Key), list_to_binary(Value)), 
-    hanoidb:close(Tree),
     Key.
 
-lookup(Key) ->
-    {ok, Tree} = hanoidb:open_link("adb"),
-    Result = hanoidb:get(Tree, list_to_binary(Key)),
-    hanoidb:close(Tree),
-    Result.
+lookup(Tree, Key) ->
+  try
+    {ok, Result} = hanoidb:get(Tree, list_to_binary(Key)),
+    binary_to_list(Result)
+  catch
+    _Class:Err -> not_found	
+  end.
 
-delete(Key) ->
-    {ok, Tree} = hanoidb:open_link("adb"),
-    Result = hanoidb:delete(Tree, list_to_binary(Key)),
-    hanoidb:close(Tree),
-    Result.
+delete(Tree, Key) ->
+    hanoidb:delete(Tree, list_to_binary(Key)).
 
-update(Key, Value) ->
-    delete(Key),
-    save(Key,Value).
+update(Tree, Key, Value) ->
+    delete(Tree, Key),
+    save(Tree, Key, Value).
