@@ -16,6 +16,8 @@ start(DBName) ->
 	end.
 
 btree_device(Modifier, Reader) ->
+	link(Modifier),
+	link(Reader),
 	receive
 		{Sender, {lookup, Key}} ->
 			Reader ! {Sender, {lookup, Key}},
@@ -77,6 +79,9 @@ delete(AdbtreeDevice, Key) ->
 		Answ ->
 			Answ
 	end.
+
+close(AdbtreeDevice) ->
+	AdbtreeDevice ! exit(normal).
 
 
 %	Função que lê um documento do arquivo de documentos. Recebe como parâmetro: *parâmetros* . Retorna: *retorno*.
