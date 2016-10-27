@@ -35,7 +35,7 @@
 
 -define(SERVER, ?MODULE).      % declares a SERVER macro constant (?MODULE is the module's name) 
 
--record(state, {lsock, persistence, request_count = 0}). % a record for keeping the server state
+-record(state, {lsock, persistence, current_db = none}). % a record for keeping the server state
 
 %%%======================================================
 %%% API
@@ -63,7 +63,7 @@ init([LSock, Persistence]) ->
     {ok, #state{lsock = LSock, persistence = Persistence}, 0}.
 
 handle_call(get_count, _From, State) ->
-     {reply, {ok, State#state.request_count}, State};
+     {reply, {ok, State}, State};
 handle_call(Msg, _From, State) ->
     {reply, {ok, Msg}, State}. 
 
@@ -71,9 +71,8 @@ handle_cast(stop, State) ->
     {stop, normal, State}.
 
 handle_info({tcp, Socket, RawData}, State) -> 
-    process_request(Socket, State#state.persistence, RawData),
-    RequestCount = State#state.request_count,
-    {noreply,State#state{request_count = RequestCount + 1}};
+    NewState = process_request(Socket, State, RawData),
+    {noreply, NewState};
 
 handle_info({tcp_closed, _Socket}, State) ->
     {stop, normal, State};
@@ -89,21 +88,35 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}. 
 
-process_request(Socket, Persistence, RawData) ->
+process_request(Socket, State, RawData) ->
     try 
       Tokens = preprocess(RawData),
-      evaluate_request(Socket, Persistence, Tokens)
+      evaluate_request(Socket, State, Tokens)
     catch
       _Class:Err -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Err]))	
     end.
 
-evaluate_request(Socket, Persistence, {Command, Args}) ->
-    Pid = gen_persistence:start(Persistence, []),
+evaluate_request(Socket, State, Tokens) ->
+    case Tokens of
+        {"use", Database} ->
+            NewState = State#state{ current_db = Database },
+            gen_tcp:send(Socket, io_lib:fwrite("Database set to ~p...~n", [Database])),
+            NewState;
+        _ ->
+            persist(Socket, State#state.persistence, State#state.current_db, Tokens),
+            State
+    end.
+
+persist(Socket, _, none, _) ->
+    gen_tcp:send(Socket, io_lib:fwrite("Database not set. Please use the 'use' command.~n", []));
+
+persist(Socket, Persistence, CurrentDB, {Command, Args}) ->
+    Pid = gen_persistence:start(Persistence, [CurrentDB]),
     Pid ! {self(), list_to_atom(Command), Args},
     receive
-      {_, _Response} ->
-        gen_tcp:send(Socket, io_lib:fwrite("~p~n", [_Response]))
-    end.
+        {_, _Response} ->
+            gen_tcp:send(Socket, io_lib:fwrite("~p~n", [_Response]))
+    end.    
 
 preprocess(RawData) ->
     _reverse = lists:reverse(RawData),
@@ -117,7 +130,7 @@ preprocess(RawData) ->
     end.
 
 filter_command(Command) ->
-    ValidCommands = ["save", "lookup", "update", "delete"],
+    ValidCommands = ["save", "lookup", "update", "delete", "use", "create_db", "delete_db"],
     [X || X <- ValidCommands, X =:= Command].
 
 split(Str) ->

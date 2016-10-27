@@ -4,8 +4,8 @@
 
 -export([setup/1, teardown/1, save/3, lookup/2, update/3, delete/2]).
 
-setup(_) ->
-    {ok, Tree} = hanoidb:open_link("adb"),
+setup([DBName]) ->
+    {ok, Tree} = hanoidb:open_link(DBName),
     Tree.
 
 teardown(Tree) ->
@@ -16,8 +16,12 @@ save(Tree, Key, Value) ->
     Key.
 
 lookup(Tree, Key) ->
-  {ok, Result} = hanoidb:get(Tree, list_to_binary(Key)),
-  binary_to_list(Result).
+  try
+    {ok, Result} = hanoidb:get(Tree, list_to_binary(Key)),
+    binary_to_list(Result)
+  catch
+    _Class:Err -> not_found	
+  end.
 
 delete(Tree, Key) ->
     hanoidb:delete(Tree, list_to_binary(Key)).
