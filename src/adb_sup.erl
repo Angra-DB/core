@@ -42,6 +42,5 @@ setup_persistence(Args) ->
       hanoidb -> lager:info("Starting HanoiDB..."),
                  hanoidb_persistence;
       ets     -> lager:info("Starting ets..."),
-                 _Docs = ets:new(docs, [set, public, named_table]),
-                 ets_persistence
+		 ets_persistence
     end.

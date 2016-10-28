@@ -62,8 +62,6 @@ stop() ->
 init([LSock, Persistence]) ->
     {ok, #state{lsock = LSock, persistence = Persistence}, 0}.
 
-handle_call(get_count, _From, State) ->
-     {reply, {ok, State}, State};
 handle_call(Msg, _From, State) ->
     {reply, {ok, Msg}, State}. 
 
@@ -88,6 +86,19 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}. 
 
+%%% ========================================================== 
+% process the TCP requests. here, we accept the following 
+% commands:
+%
+%   create_db <DBName>
+%   delete_db <DBName>
+%   connect <DBName>
+%
+%   save <Document>
+%   lookup <Id> 
+%   update <Id> <Document>
+%   delete <Id> 
+%%% =========================================================
 process_request(Socket, State, RawData) ->
     try 
       Tokens = preprocess(RawData),
@@ -98,14 +109,33 @@ process_request(Socket, State, RawData) ->
 
 evaluate_request(Socket, State, Tokens) ->
     case Tokens of
-        {"use", Database} ->
-            NewState = State#state{ current_db = Database },
-            gen_tcp:send(Socket, io_lib:fwrite("Database set to ~p...~n", [Database])),
-            NewState;
+        {"connect", Database} ->
+            io:format("connect~n", []), 
+            connect(Socket, State, Database);
+        {"create_db", Database} ->
+            persist(Socket, State#state.persistence, Database, Tokens),
+            State;
         _ ->
             persist(Socket, State#state.persistence, State#state.current_db, Tokens),
             State
     end.
+
+%
+% connects to an existing database. 
+% 
+connect(Socket, State, Database) ->
+    Pid = gen_persistence:start(State#state.persistence, []),
+    Pid ! {self(), connect, Database},
+    receive
+        {_, db_does_not_exist} ->
+            gen_tcp:send(Socket, io_lib:fwrite("Database ~p does not exist~n", [Database])),
+	    State;
+	{_, ok} ->
+            NewState = State#state{ current_db = Database },
+            gen_tcp:send(Socket, io_lib:fwrite("Database set to ~p...~n", [Database])),
+            NewState
+    end.    
+    
 
 persist(Socket, _, none, _) ->
     gen_tcp:send(Socket, io_lib:fwrite("Database not set. Please use the 'use' command.~n", []));
@@ -130,7 +160,7 @@ preprocess(RawData) ->
     end.
 
 filter_command(Command) ->
-    ValidCommands = ["save", "lookup", "update", "delete", "use", "create_db", "delete_db"],
+    ValidCommands = ["save", "lookup", "update", "delete", "connect", "create_db", "delete_db"],
     [X || X <- ValidCommands, X =:= Command].
 
 split(Str) ->
