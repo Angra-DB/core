@@ -9,7 +9,7 @@
 
 -behavior(application). 
 
--export([start/2, stop/1]).
+-export([start/2, stop/1, kickoff/1]).
 
 -define(DEFAULT_PORT, 1234). 
 
@@ -18,6 +18,10 @@
 % actually, this is the most relevant 
 % operation of this model, which is responsible 
 % for starting the root supervisor. 
+
+kickoff(Module) ->
+    lager:start(),
+    application:start(Module).
 
 start(_Type, _StartArgs) ->
 
