@@ -5,5 +5,5 @@
    
 # Run
    * make run rebar3 shell
-   * application:kickoff(adb_core).  
+   * adb_app:kickoff(adb_core).  
 
