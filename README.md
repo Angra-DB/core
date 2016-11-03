@@ -4,6 +4,7 @@
    * make compile-deps
    
 # Run
-   * make run rebar3 shell
+   * make run 
+   * rebar3 shell
    * adb_app:kickoff(adb_core).  
 
