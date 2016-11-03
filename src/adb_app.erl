@@ -18,10 +18,13 @@
 % actually, this is the most relevant 
 % operation of this model, which is responsible 
 % for starting the root supervisor. 
-
-kickoff(Module) ->
+kickoff(core) ->
+    application:start(adb_core);
+kickoff(all) ->
     lager:start(),
-    application:start(Module).
+    application:start(adb_core);
+kickoff(_) ->
+    invalid_argument.
 
 start(_Type, _StartArgs) ->
 
