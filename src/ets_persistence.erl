@@ -15,8 +15,8 @@ teardown(_) ->
 
 createDB(DB) ->
     DBName = list_to_atom(DB),
-    NDB = ets:new(DBName, [set, public, named_table]),
-    {ok, NDB}.
+    _NDB = ets:new(DBName, [set, public, named_table]),
+    {ok}.
 
 connect(DB) ->
     DBName = list_to_atom(DB),

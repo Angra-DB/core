@@ -2,36 +2,31 @@
 
 -export([behaviour_info/1]).
 
--export([start/2, process_request/2, gen_key/0]).
+-export([start/2, process_request/4, gen_key/0]).
 
 behaviour_info(callbacks) ->
   [{setup, 1}, {teardown, 1}, {createDB, 1}, {connect, 1}, {save, 3}, {lookup, 2}, {update, 3}, {delete, 2}].
 
-start(Child, Args) ->
-  spawn(gen_persistence, process_request, [Child, Args]).
+start(_Child, _Args) ->  ok. 
 
-process_request(Child, Args) ->
-  State = Child:setup(Args),
-  receive
-    {_From, create_db, DB} ->
-      _From ! {create_db, Child:createDB(DB)};
-  
-    {_From, connect, DB} ->
-      _From ! {connect, Child:connect(DB)};
+process_request(create_db, _, DB, Child) ->
+     Child:createDB(DB);
+
+process_request(connect, _, DB, Child) ->
+    Child:connect(DB);
+
+process_request(save, DB, Doc, Child) -> 
+    Child:save(DB, gen_key(), Doc);
+
+process_request(lookup, DB, Key, Child) -> 
+    Child:lookup(DB, Key);
+
+process_request(update, DB, {Key, Doc}, Child) -> 
+    Child:update(DB, Key, Doc);
+
+process_request(delete, DB, Key, Child) ->
+    Child:delete(DB, Key). 
  
-    {_From, save, Doc} ->
-      _From ! {save, Child:save(State, gen_key(), Doc)};
-   
-    {_From, lookup, Key} ->
-      _From ! {lookup, Child:lookup(State, Key)};
-   
-    {_From, update, {Key, Doc}} ->
-      _From ! {update, Child:update(State, Key, Doc)};
-   
-    {_From, delete, Key} ->
-      _From ! {delete, Child:delete(State, Key)}
-  end,
-  Child:teardown(State).
 
 gen_key() ->
     Time = erlang:system_time(nano_seconds),
