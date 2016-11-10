@@ -35,7 +35,7 @@
 
 -define(SERVER, ?MODULE).      % declares a SERVER macro constant (?MODULE is the module's name) 
 
--record(state, {lsock, persistence, current_db = none}). % a record for keeping the server state
+-record(state, {lsock, persistence, parent, current_db = none}). % a record for keeping the server state
 
 %%%======================================================
 %%% API
@@ -47,7 +47,7 @@
 %%%======================================================
 
 start_link(LSock, Persistence) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [LSock, Persistence], []).
+    gen_server:start_link(?MODULE, [LSock, Persistence], []).
 			  
 get_count() ->
     gen_server:call(?SERVER, get_count).
@@ -76,9 +76,9 @@ handle_info({tcp_closed, _Socket}, State) ->
     {stop, normal, State};
 
 handle_info(timeout, #state{lsock = LSock} = State) ->
-    {ok, _Sock} = gen_tcp:accept(LSock),
+    {ok, Sock} = gen_tcp:accept(LSock),
     adb_sup:start_child(),
-    {noreply, State}. 
+    {noreply, State#state{ lsock = Sock }}. 
 
 terminate(_Reason, _State) ->
     ok.

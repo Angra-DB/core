@@ -33,10 +33,10 @@ start(_Type, _StartArgs) ->
              {ok, P}   -> P;
              undefined -> ?DEFAULT_PORT
            end,
-    {ok, LSock} = gen_tcp:listen(Port, [{active,true}]),
+    {ok, LSock} = gen_tcp:listen(Port, [{active,true}, {reuseaddr, true}]),
 
     lager:info("Listening to TCP requests on port ~w ~n", [Port]),
-    
+  
     case adb_sup:start_link(LSock, _StartArgs) of
       {ok, Pid} -> adb_sup:start_child(),
                    {ok, Pid};
