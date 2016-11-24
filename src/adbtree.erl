@@ -81,7 +81,7 @@ delete(AdbtreeDevice, Key) ->
 	end.
 
 close(AdbtreeDevice) ->
-	AdbtreeDevice ! exit(normal).
+	exit(AdbtreeDevice, normal).
 
 
 %	Função que lê um documento do arquivo de documentos. Recebe como parâmetro: *parâmetros* . Retorna: *retorno*.
@@ -439,7 +439,13 @@ btree_update(Fp, Settings, Btree = #btree{curNode = PNode}, Key, Doc, IsRoot) ->
 			LVersions = update_list(NewVersion, Version, Leaf#leaf.versions),
 			NewLeaf = Leaf#leaf{docPointers = LPos, versions = LVersions},
 			{ok, NewLeafPos} = write_leaf(Fp, Settings, Btree, NewLeaf),
-			NewLeafPos;
+			if
+				IsRoot == root ->
+					write_header(Fp, Settings, Btree, NewLeafPos),
+					ok;	
+				true ->
+					NewLeafPos
+			end;
 		_V ->
 			error(invalidNodeId)
 	end.

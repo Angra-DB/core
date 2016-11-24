@@ -38,8 +38,10 @@ init([LSock, Persistence]) ->
 setup_persistence(Args) ->
     lager:info("Setting up the persistence module.", []),
     case proplists:get_value(persistence, Args) of
-      hanoidb -> lager:info("Starting HanoiDB..."),
+	hanoidb -> lager:info("Starting HanoiDB..."),
                  hanoidb_persistence;
+	adbtree -> lager:info("starting ADBtree"),
+		adbtree_persistence;		
       _     -> lager:info("Starting ets..."),
 		 ets_persistence
     end.
