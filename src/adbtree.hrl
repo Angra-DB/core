@@ -5,7 +5,7 @@
 -define(Node, 0).
 -define(Leaf, 1).
 -define(SizeOfSize, 8).
--define(DefaultOrder, 5).
+-define(DefaultOrder, 256).
 -define(DefaultVerSize, 8).
 -define(DefaultMaxSize, 16).
 

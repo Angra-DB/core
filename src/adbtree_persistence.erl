@@ -9,9 +9,8 @@ setup([DBName]) ->
     Tree.
 
 connect(DB) ->
-    case adbtree:start(DB) of
+    case adbtree:connect(DB) of
         {ok, Tree} ->
-            adbtree:close(Tree),
             ok;
         {error, enoent} ->
             db_does_not_exist
@@ -24,29 +23,21 @@ teardown(Tree) ->
     adbtree:close(Tree).
 
 save(Tree, Key, Value) ->
-    {ok, Btree} = adbtree:start(atom_to_list(Tree)),
-    adbtree:save(Btree, list_to_binary(Value), list_to_integer(Key, 16)),
-    adbtree:close(Btree),
+    adbtree:save(atom_to_list(Tree), list_to_binary(Value), list_to_integer(Key, 16)),
     Key.
 
 lookup(Tree, Key) ->
   try
-    {ok, Btree} = adbtree:start(atom_to_list(Tree)),
-    {ok, _Version, Doc} = adbtree:lookup(Btree, list_to_integer(Key, 16)),
-    adbtree:close(Btree),
+    {ok, _Version, Doc} = adbtree:lookup(atom_to_list(Tree), list_to_integer(Key, 16)),
     binary_to_list(Doc)
   catch
     _Class:_Err -> not_found	
   end.
 
 delete(Tree, Key) ->
-    {ok, Btree} = adbtree:start(atom_to_list(Tree)),
-    adbtree:delete(Btree, list_to_integer(Key, 16)),
-    adbtree:close(Btree).
+    adbtree:delete(atom_to_list(Tree), list_to_integer(Key, 16)).
 
 update(Tree, Key, Value) ->
-    {ok, Btree} = adbtree:start(atom_to_list(Tree)),
-    adbtree:update(Btree, list_to_binary(Value), list_to_integer(Key, 16)),
-    adbtree:close(Btree),
+    adbtree:update(atom_to_list(Tree), list_to_binary(Value), list_to_integer(Key, 16)),
     ok.
 

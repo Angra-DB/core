@@ -3,85 +3,112 @@
 %-export([start/1, save/3,lookup/2,update/3,delete/2, create_db/4, create_db/3, create_db/2, create_db/1]).
 -compile(export_all).
 
-start(DBName) ->
+% start(DBName) ->
+% 	case Fp = file:open(DBName++"Index.adb", [read]) of
+% 		T = {error, enoent} ->
+% 			T;
+% 		_ ->
+% 			file:close(Fp),
+% 			Reader = spawn(a1dbtree, reader, [DBName]),
+% 			Modifier = spawn(adbtree, modifier, [DBName]),
+% 			Pid = spawn(adbtree, btree_device, [Modifier, Reader]),
+% 			{ok, Pid}
+% 	end.
+
+% btree_device(Modifier, Reader) ->
+% 	link(Modifier),
+% 	link(Reader),
+% 	receive
+% 		{Sender, {lookup, Key}} ->
+% 			Reader ! {Sender, {lookup, Key}},
+% 			btree_device(Modifier, Reader);
+% 		{Sender, T} ->
+% 			Modifier ! {Sender, T},
+% 			btree_device(Modifier, Reader)
+% 	end.
+
+% reader(DBName) ->
+% 	receive
+% 		{Sender, {lookup, Key}} ->
+% 			Sender ! btree_lookup(Key, DBName),
+% 			reader(DBName)
+% 	end.
+
+% modifier(DBName) ->
+% 	receive
+% 		{Sender, {update, Doc, Key}} ->
+% 			Sender ! btree_update(Doc, Key, DBName),
+% 			modifier(DBName);
+% 		{Sender, {insert, Doc, Key}} ->
+% 			Sender ! insert(Doc, Key, DBName),
+% 			modifier(DBName);
+% 		{Sender, {delete, Key}} ->
+% 			Sender ! btree_delete(Key, DBName),
+% 			modifier(DBName);
+% 		{Sender, _} ->
+% 			Sender ! invalid_operation;
+% 		T -> 
+% 			io:print("~p", [T])
+% 	end.
+
+% save(AdbtreeDevice, Doc, Key) ->
+% 	AdbtreeDevice ! {self(), {insert, Doc, Key}},
+% 	receive
+% 		Answ ->
+% 			Answ
+% 	end.
+
+
+% lookup(AdbtreeDevice, Key) ->
+% 	AdbtreeDevice ! {self(), {lookup, Key}},
+% 	receive
+% 		Answ ->
+% 			Answ
+% 	end.
+
+% update(AdbtreeDevice, Doc, Key) ->
+% 	AdbtreeDevice ! {self(), {update, Doc, Key}},
+% 	receive
+% 		Answ ->
+% 			Answ
+% 	end.
+
+% delete(AdbtreeDevice, Key) ->
+% 	AdbtreeDevice ! {self(), {delete, Key}},
+% 	receive
+% 		Answ ->
+% 			Answ
+% 	end.
+
+% close(AdbtreeDevice) ->
+% 	exit(AdbtreeDevice, normal).
+
+
+save(DBName, Doc, Key) ->
+	insert(Doc, Key, DBName).
+
+lookup(DBName, Key) ->
+	btree_lookup(Key, DBName).
+
+update(DBName, Doc, Key) ->
+	btree_update(Doc, Key, DBName).
+
+delete(DBName, Key) ->
+	btree_delete(Key, DBName).
+
+connect(DBName) ->
 	case Fp = file:open(DBName++"Index.adb", [read]) of
 		T = {error, enoent} ->
 			T;
-		_ ->
+		{ok, _} ->
 			file:close(Fp),
-			Reader = spawn(adbtree, reader, [DBName]),
-			Modifier = spawn(adbtree, modifier, [DBName]),
-			Pid = spawn(adbtree, btree_device, [Modifier, Reader]),
-			{ok, Pid}
-	end.
-
-btree_device(Modifier, Reader) ->
-	link(Modifier),
-	link(Reader),
-	receive
-		{Sender, {lookup, Key}} ->
-			Reader ! {Sender, {lookup, Key}},
-			btree_device(Modifier, Reader);
-		{Sender, T} ->
-			Modifier ! {Sender, T},
-			btree_device(Modifier, Reader)
-	end.
-
-reader(DBName) ->
-	receive
-		{Sender, {lookup, Key}} ->
-			Sender ! btree_lookup(Key, DBName),
-			reader(DBName)
-	end.
-
-modifier(DBName) ->
-	receive
-		{Sender, {update, Doc, Key}} ->
-			Sender ! btree_update(Doc, Key, DBName),
-			modifier(DBName);
-		{Sender, {insert, Doc, Key}} ->
-			Sender ! insert(Doc, Key, DBName),
-			modifier(DBName);
-		{Sender, {delete, Key}} ->
-			Sender ! btree_delete(Key, DBName),
-			modifier(DBName);
-		{Sender, _} ->
-			Sender ! invalid_operation;
-		T -> 
-			io:print("~p", [T])
-	end.
-
-save(AdbtreeDevice, Doc, Key) ->
-	AdbtreeDevice ! {self(), {insert, Doc, Key}},
-	receive
-		Answ ->
-			Answ
+			{ok, DBName};
+		Error ->
+			{error, Error}
 	end.
 
 
-lookup(AdbtreeDevice, Key) ->
-	AdbtreeDevice ! {self(), {lookup, Key}},
-	receive
-		Answ ->
-			Answ
-	end.
 
-update(AdbtreeDevice, Doc, Key) ->
-	AdbtreeDevice ! {self(), {update, Doc, Key}},
-	receive
-		Answ ->
-			Answ
-	end.
-
-delete(AdbtreeDevice, Key) ->
-	AdbtreeDevice ! {self(), {delete, Key}},
-	receive
-		Answ ->
-			Answ
-	end.
-
-close(AdbtreeDevice) ->
-	exit(AdbtreeDevice, normal).
 
 
 %	Função que lê um documento do arquivo de documentos. Recebe como parâmetro: *parâmetros* . Retorna: *retorno*.
