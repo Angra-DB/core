@@ -109,6 +109,53 @@ connect(DBName) ->
 
 
 
+compress_index(DBName) ->
+	try
+		NameIndex = DBName++"Index.adb",
+		{ok, FpOld} = file:open(NameIndex, [read, binary]),
+		{Settings, Btree} = get_header(FpOld),
+		{ok, FpNew} = file:open(NameIndex++"_temp.adb", [read, write, binary]),
+		write_header(FpNew, Settings, Btree, ?SizeOfHeader),
+		io:fwrite("antes"),
+		{ok, NewRoot} = compress_index(FpOld, Btree, FpNew, Settings),
+		io:fwrite("depois"),
+		write_header(FpNew, Settings, Btree, NewRoot),
+		file:close(FpOld),
+		file:close(FpNew),
+		file:rename(NameIndex, NameIndex++".old.adb"),
+		file:rename(NameIndex++"_temp.adb", NameIndex)
+	catch
+		error:Error ->
+			{error, Error};
+		exit:Error ->
+			{exit, Error}
+	end.
+
+% Returns the new pointer to the node
+compress_index(FpOld, Btree = #btree{curNode=PNode}, FpNew, Settings) ->
+	file:position(FpOld, {bof, PNode}),
+	{ok, Type} = file:read(FpOld, 1),
+	case Type of
+		<<?Leaf:1/unit:8>> -> 
+			Leaf = read_leaf(FpOld, Settings, Btree),
+			write_leaf(FpNew, Settings, Btree, Leaf);		
+		<<?Node:1/unit:8>> ->
+			Node = read_node(FpOld, Btree),
+			{ok, NewPointers} = compress_index(Node#node.nodePointers, FpOld, Btree, FpNew, Settings),
+			write_node(FpNew, Btree, Node#node{nodePointers = NewPointers});
+		_V -> 
+			error(invalidNodeId)
+	end.
+
+% Returns the list of new pointers of children
+compress_index([], _FpOld, _Btree, _FpNew, _Settings)->
+	{ok, []};
+
+compress_index([PNode | NodePointers], FpOld, Btree, FpNew, Settings) ->
+	{ok, NewPointers} = compress_index(NodePointers, FpOld, Btree, FpNew, Settings),
+	{ok, NewPos} = compress_index(FpOld, Btree#btree{curNode=PNode}, FpNew, Settings),
+	{ok, [NewPos | NewPointers]}.
+
 
 
 %	Função que lê um documento do arquivo de documentos. Recebe como parâmetro: *parâmetros* . Retorna: *retorno*.
@@ -181,7 +228,8 @@ insert(Doc, Key, DBName) ->
 		{ok, PosDoc, Version} = save_doc(-1, 0, Doc, Settings),
 		{ok, NewRoot} = insert(Fp, Btree, Settings, Key, PosDoc, Version),
 		write_header(Fp, Settings, Btree, NewRoot),
-		file:close(Fp)
+		file:close(Fp),
+		{ok, Key}
 	catch
 		error:Error ->
 			{error, Error};

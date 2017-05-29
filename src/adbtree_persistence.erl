@@ -23,8 +23,8 @@ teardown(Tree) ->
     adbtree:close(Tree).
 
 save(Tree, Key, Value) ->
-    adbtree:save(atom_to_list(Tree), list_to_binary(Value), list_to_integer(Key, 16)),
-    Key.
+    {ok, NewKey} = adbtree:save(atom_to_list(Tree), list_to_binary(Value), list_to_integer(Key, 16)),
+    integer_to_list(NewKey, 16).
 
 lookup(Tree, Key) ->
   try
