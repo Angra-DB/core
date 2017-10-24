@@ -11,3 +11,4 @@ erl_crash.dump
 _build/
 log/
 *.*#
+*.adb
