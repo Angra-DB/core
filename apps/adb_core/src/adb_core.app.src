@@ -1,6 +1,6 @@
 {application, adb_core,
 [{description, "The angra-db core service."},
- {vsn, "0.01"},
+ {vsn, "0.0.1"},
  {modules, [adb_app, adb_sup, adb_server]},
  {registered, [adb_sup]},
  {applications, [kernel, stdlib, lager]},

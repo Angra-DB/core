@@ -1,0 +1,6 @@
+-name {{release_name}}@127.0.0.1
+
+-setcookie core_cookie {{release_name}}
+
++K true
++A30
