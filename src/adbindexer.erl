@@ -2,28 +2,42 @@
 -include("adbindexer.hrl").
 -compile(export_all).
 
-% Index -> index that is being built
+% InvertedIndex -> index that is being built
 
 create_index([], _DocKey) ->
 	[];
 
-create_index([_Token = #token{ word = Word, docPos = DocPos } | TokenList], DocKey) -> 
-	Index = insert_token(Word, DocPos, DocKey, []),
+create_index([_Token = #token{ word = Word, docPos = DocPos } | TokenList], DocKey) ->
+	Index = insert_token(Word, #posting{docKey = DocKey, docPos = DocPos}, []),
+	update_mem_index(TokenList, DocKey, Index);
+
+create_index([_Token = #token_ext{ word = Word, docPos = DocPos, fieldStart = FieldStart, fieldEnd = FieldEnd } | TokenList], DocKey) ->
+	Index = insert_token(Word, #posting_ext{docKey = DocKey, docPos = DocPos, fieldStart = FieldStart, fieldEnd = FieldEnd}, []),
 	update_mem_index(TokenList, DocKey, Index).
 
 update_mem_index([], _DocKey, Index) ->
 	Index;
 
 update_mem_index([_Token = #token{ word = Word, docPos = DocPos }  | TokenList], DocKey, Index) ->
-	NewIndex = insert_token(Word, DocPos, DocKey, Index),
+	NewIndex = insert_token(Word, #posting{docKey = DocKey, docPos = DocPos}, Index),
+	update_mem_index(TokenList, DocKey, NewIndex);
+
+update_mem_index([_Token = #token_ext{ word = Word, docPos = DocPos, fieldStart = FieldStart, fieldEnd = FieldEnd }  | TokenList], DocKey, Index) ->
+	NewIndex = insert_token(Word, #posting_ext{docKey = DocKey, docPos = DocPos, fieldStart = FieldStart, fieldEnd = FieldEnd}, Index),
 	update_mem_index(TokenList, DocKey, NewIndex).
 
-insert_token(Word, DocPos, DocKey, Index) ->
+insert_token(Word, Posting, Index) ->
+
 	case find_term(Index, Word) of
 		not_found ->
-			insert_term(Index, #term{word = Word, count = 1, postings = [#posting{docKey = DocKey, docPos = DocPos}]});
-		Term -> 
-			NewTerm = insert_posting(Term, DocKey, DocPos),
+			case Posting of
+				#posting{} ->
+					insert_term(Index, #term{word = Word, normalPostings = 1, extPostings = 0, postings = [Posting]});
+				#posting_ext{} ->
+					insert_term(Index, #term{word = Word, normalPostings = 0 , extPostings = 1, postings = [Posting]})
+			end;
+		Term ->
+			NewTerm = insert_posting(Term, Posting),
 			update_term(Index, NewTerm)
 	end.
 
@@ -33,7 +47,7 @@ find_term(Index, Word) ->
 
 	case Middle of
 	0 -> not_found; %% empty list -> item not found
-	_ -> 
+	_ ->
 		Term = lists:nth(Middle, Index),
 
 		case Term#term.word of
@@ -45,21 +59,35 @@ find_term(Index, Word) ->
 		end
   	end.
 
-insert_posting(Term = #term{postings = Postings, count = Count}, DocKey, DocPos) ->
-	NewPostings = insert_posting(Postings, DocKey, DocPos),
-	Term#term{postings = NewPostings, count = Count + 1};
+insert_posting(Term = #term{postings = Postings, normalPostings = NormalPostings, extPostings = ExtPostings}, NewPosting) ->
+	NewPostings = insert_posting(Postings, NewPosting),
+	case NewPosting of
+		#posting{} ->
+			Term#term{postings = NewPostings, normalPostings = NormalPostings + 1};
+		#posting_ext{} ->
+			Term#term{postings = NewPostings, extPostings = ExtPostings + 1}
+	end;
 
-insert_posting([], DocKey, DocPos) ->
-	[#posting{docKey = DocKey, docPos = DocPos}];
 
-insert_posting([P | Postings], DocKey, DocPos) ->
-	case P#posting.docKey < DocKey of
-		true -> 
-			NewPostings = insert_posting(Postings, DocKey, DocPos),
+insert_posting([], NewPosting) ->
+	[NewPosting];
+
+insert_posting([P | Postings], NewPosting) ->
+	CurDocKey = extract_key_from_record(P),
+	NewDocKey = extract_key_from_record(NewPosting),
+	case CurDocKey < NewDocKey of
+		true ->
+			NewPostings = insert_posting(Postings, NewPosting),
 			[P | NewPostings];
 		false ->
-			[#posting{docKey = DocKey, docPos = DocPos} | [P | Postings]]
+			[NewPosting | [P | Postings]]
 	end.
+
+
+extract_key_from_record(#posting_ext{docKey = DocKey}) ->
+	DocKey;
+extract_key_from_record(#posting{docKey = DocKey}) ->
+	DocKey.
 
 update_term([], _NewTerm) ->
 	[];
@@ -76,7 +104,7 @@ insert_term([], NewTerm) ->
 
 insert_term([T | Index], NewTerm) ->
 	case T#term.word < NewTerm#term.word of
-		true -> 
+		true ->
 			NewIndex = insert_term(Index, NewTerm),
 			[T | NewIndex];
 		false ->
@@ -99,7 +127,7 @@ save_index(Index, DBName, HashFunction) ->
 write_index([], HashTable, _Fp, _HashFunction) ->
 	HashTable;
 
-write_index([_T = #term{word = Word, count = Count, postings = Postings} | Index], HashTable, Fp, HashFunction) ->
+write_index([_T = #term{word = Word, normalPostings = NormalPostings, extPostings = ExtPostings, postings = Postings} | Index], HashTable, Fp, HashFunction) ->
 	Hash = (HashFunction(Word) rem ?HashSize) + 1, %nth is base 1
 	NextTerm = lists:nth(Hash, HashTable),
 	{ok, Position} = file:position(Fp, cur),
@@ -107,7 +135,7 @@ write_index([_T = #term{word = Word, count = Count, postings = Postings} | Index
 	PostingsBin = postings_to_bin(Postings),
 	WordList = Word ++ lists:duplicate(?SizeOfWord - length(Word), 0),
 	WordBin = list_to_binary(WordList),
-	TermBin = <<WordBin/binary, Count:?SizeOfCount/unit:8, NextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>>,
+	TermBin = <<WordBin/binary, NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, NextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>>,
 	file:write(Fp, TermBin),
 	write_index(Index, NewHashTable, Fp, HashFunction).
 
@@ -135,16 +163,16 @@ merge_index([], HashTable, FpOld, FpNew, HashFunction) ->
 	case file:read(FpOld, ?SizeOfWord) of
 		{ok, WordBin} ->
 			Word = lists:takewhile(fun(X) -> X /= 0 end, binary_to_list(WordBin)),
-			{ok, <<Count:?SizeOfCount/unit:8, _NextTerm:?SizeOfPointer/unit:8>>} = file:read(FpOld, ?SizeOfCount + ? SizeOfPointer),
-			{ok, <<PostingsBin/binary>>} =  file:read(FpOld, Count*?SizeOfPosting),
+			{ok, <<NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, _NextTerm:?SizeOfPointer/unit:8>>} = file:read(FpOld, 2*?SizeOfCount + ?SizeOfPointer),
+			{ok, <<PostingsBin/binary>>} =  file:read(FpOld, (NormalPostings*?SizeOfPosting) + (ExtPostings*?SizeOfExtPosting)),
 			{ok, Position} = file:position(FpNew, cur),
 			Hash = (HashFunction(Word) rem ?HashSize) + 1,
 			NewNextTerm = lists:nth(Hash, HashTable),
 			NewHashTable = lists:sublist(HashTable, Hash - 1) ++ [Position] ++ lists:nthtail(Hash, HashTable),
-			TermBin = <<WordBin/binary, Count:?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>>,
+			TermBin = <<WordBin/binary, NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>>,
 			file:write(FpNew, TermBin),
 			merge_index([], NewHashTable, FpOld, FpNew, HashFunction);
-		eof -> 
+		eof ->
 			HashTable
 	end;
 
@@ -153,25 +181,25 @@ merge_index([Term | Index], HashTable, FpOld, FpNew, HashFunction) ->
 	case file:read(FpOld, ?SizeOfWord) of
 		{ok, WordBin} ->
 			Word = lists:takewhile(fun(X) -> X /= 0 end, binary_to_list(WordBin)),
-			{ok, <<Count:?SizeOfCount/unit:8, NextTerm:?SizeOfPointer/unit:8>>} = file:read(FpOld, ?SizeOfCount + ? SizeOfPointer),
-			{ok, <<PostingsBin/binary>>} =  file:read(FpOld, Count*?SizeOfPosting),
+			{ok, <<NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, NextTerm:?SizeOfPointer/unit:8>>} = file:read(FpOld, 2*?SizeOfCount + ? SizeOfPointer),
+			{ok, <<PostingsBin/binary>>} =  file:read(FpOld, (NormalPostings*?SizeOfPosting) + (ExtPostings*?SizeOfExtPosting)),
 			case Term#term.word < Word of
-				true ->	
+				true ->
 					Hash = (HashFunction(Term#term.word) rem ?HashSize) + 1,
 					NewNextTerm = lists:nth(Hash, HashTable),
 					NewHashTable = lists:sublist(HashTable, Hash - 1) ++ [Position | lists:nthtail(Hash, HashTable)],
 					NewPostingsBin = postings_to_bin(Term#term.postings),
 					WordList = Term#term.word ++ lists:duplicate(?SizeOfWord - length(Term#term.word), 0),
 					NewWordBin = list_to_binary(WordList),
-					NewTermBin = <<NewWordBin/binary, (Term#term.count):?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, NewPostingsBin/binary>>,
+					NewTermBin = <<NewWordBin/binary, (Term#term.normalPostings):?SizeOfCount/unit:8, (Term#term.extPostings):?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, NewPostingsBin/binary>>,
 					file:write(FpNew, NewTermBin),
-					DocTermBin = <<WordBin/binary, Count:?SizeOfCount/unit:8, NextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>>,
+					DocTermBin = <<WordBin/binary, NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, NextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>>,
 					merge_index(Index, DocTermBin, NewHashTable, FpOld, FpNew, HashFunction);
 				false when Term#term.word > Word ->
 					Hash = (HashFunction(Word) rem ?HashSize) + 1,
 					NewNextTerm = lists:nth(Hash, HashTable),
 					NewHashTable = lists:sublist(HashTable, Hash - 1) ++ [Position] ++ lists:nthtail(Hash, HashTable),
-					TermBin = <<WordBin/binary, Count:?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>>,
+					TermBin = <<WordBin/binary, NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>>,
 					file:write(FpNew, TermBin),
 					merge_index([Term | Index], NewHashTable, FpOld, FpNew, HashFunction);
 				false ->
@@ -179,20 +207,20 @@ merge_index([Term | Index], HashTable, FpOld, FpNew, HashFunction) ->
 					NewNextTerm = lists:nth(Hash, HashTable),
 					NewHashTable = lists:sublist(HashTable, Hash - 1) ++ [Position] ++ lists:nthtail(Hash, HashTable),
 					Postings = bin_to_postings(PostingsBin),
-					{NewPostings, NewCount} = merge_postings(Postings, Term#term.postings),
+					{NewPostings, {NormalCounter, ExtCounter}} = merge_postings(Postings, Term#term.postings, {NormalPostings, ExtPostings}, {Term#term.normalPostings, Term#term.extPostings}),
 					NewPostingsBin = postings_to_bin(NewPostings),
-					TermBin = <<WordBin/binary, NewCount:?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, NewPostingsBin/binary>>,
+					TermBin = <<WordBin/binary, NormalCounter:?SizeOfCount/unit:8, ExtCounter:?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, NewPostingsBin/binary>>,
 					file:write(FpNew, TermBin),
 					merge_index(Index, NewHashTable, FpOld, FpNew, HashFunction)
 			end;
-		eof -> 
+		eof ->
 			Hash = (HashFunction(Term#term.word) rem ?HashSize) + 1,
 			NewNextTerm = lists:nth(Hash, HashTable),
 			NewHashTable = lists:sublist(HashTable, Hash - 1) ++ [Position | lists:nthtail(Hash, HashTable)],
 			NewPostingsBin = postings_to_bin(Term#term.postings),
 			WordList = Term#term.word ++ lists:duplicate(?SizeOfWord - length(Term#term.word), 0),
 			NewWordBin = list_to_binary(WordList),
-			NewTermBin = <<NewWordBin/binary, (Term#term.count):?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, NewPostingsBin/binary>>,
+			NewTermBin = <<NewWordBin/binary, (Term#term.normalPostings):?SizeOfCount/unit:8, (Term#term.extPostings):?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, NewPostingsBin/binary>>,
 			file:write(FpNew, NewTermBin),
 			merge_index(Index, NewHashTable, FpNew, HashFunction)
 	end.
@@ -208,41 +236,41 @@ merge_index([Term | Index], HashTable, FpNew, HashFunction) ->
 	NewPostingsBin = postings_to_bin(Term#term.postings),
 	WordList = Term#term.word ++ lists:duplicate(?SizeOfWord - length(Term#term.word), 0),
 	NewWordBin = list_to_binary(WordList),
-	NewTermBin = <<NewWordBin/binary, (Term#term.count):?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, NewPostingsBin/binary>>,
+	NewTermBin = <<NewWordBin/binary, (Term#term.normalPostings):?SizeOfCount/unit:8, (Term#term.extPostings):?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, NewPostingsBin/binary>>,
 	file:write(FpNew, NewTermBin),
 	merge_index(Index, NewHashTable, FpNew, HashFunction).
 
 merge_index([], DocTermBin, HashTable, FpOld, FpNew, HashFunction) ->
-	<<WordBin:?SizeOfWord/binary, Count:?SizeOfCount/unit:8, _NextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>> = DocTermBin,
+	<<WordBin:?SizeOfWord/binary, NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, _NextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>> = DocTermBin,
 	Word = lists:takewhile(fun(X) -> X /= 0 end, binary_to_list(WordBin)),
 	{ok, Position} = file:position(FpNew, cur),
 	Hash = (HashFunction(Word) rem ?HashSize) + 1,
 	NewNextTerm = lists:nth(Hash, HashTable),
 	NewHashTable = lists:sublist(HashTable, Hash - 1) ++ [Position] ++ lists:nthtail(Hash, HashTable),
-	TermBin = <<WordBin/binary, Count:?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>>,
+	TermBin = <<WordBin/binary, NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>>,
 	file:write(FpNew, TermBin),
 	merge_index([], NewHashTable, FpOld, FpNew, HashFunction);
 
 merge_index([Term | Index], DocTermBin, HashTable, FpOld, FpNew, HashFunction) ->
-	<<WordBin:?SizeOfWord/binary, Count:?SizeOfCount/unit:8, _NextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>> = DocTermBin,
+	<<WordBin:?SizeOfWord/binary, NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, _NextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>> = DocTermBin,
 	Word = lists:takewhile(fun(X) -> X /= 0 end, binary_to_list(WordBin)),
 	{ok, Position} = file:position(FpNew, cur),
 	case Term#term.word < Word of
-		true ->	
+		true ->
 			Hash = (HashFunction(Term#term.word) rem ?HashSize) + 1,
 			NewNextTerm = lists:nth(Hash, HashTable),
 			NewHashTable = lists:sublist(HashTable, Hash - 1) ++ [Position] ++ lists:nthtail(Hash, HashTable),
 			NewPostingsBin = postings_to_bin(Term#term.postings),
 			WordList = Term#term.word ++ lists:duplicate(?SizeOfWord - length(Term#term.word), 0),
 			NewWordBin = list_to_binary(WordList),
-			NewTermBin = <<NewWordBin/binary, (Term#term.count):?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, NewPostingsBin/binary>>,
+			NewTermBin = <<NewWordBin/binary, (Term#term.normalPostings):?SizeOfCount/unit:8, (Term#term.extPostings):?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, NewPostingsBin/binary>>,
 			file:write(FpNew, NewTermBin),
 			merge_index(Index, DocTermBin, NewHashTable, FpOld, FpNew, HashFunction);
 		false when Term#term.word > Word ->
 			Hash = (HashFunction(Word) rem ?HashSize) + 1,
 			NewNextTerm = lists:nth(Hash, HashTable),
 			NewHashTable = lists:sublist(HashTable, Hash - 1) ++ [Position] ++ lists:nthtail(Hash, HashTable),
-			TermBin = <<WordBin/binary, Count:?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>>,
+			TermBin = <<WordBin/binary, NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>>,
 			file:write(FpNew, TermBin),
 			merge_index([Term | Index], NewHashTable, FpOld, FpNew, HashFunction);
 		false ->
@@ -250,9 +278,9 @@ merge_index([Term | Index], DocTermBin, HashTable, FpOld, FpNew, HashFunction) -
 			NewNextTerm = lists:nth(Hash, HashTable),
 			NewHashTable = lists:sublist(HashTable, Hash - 1) ++ [Position] ++ lists:nthtail(Hash, HashTable),
 			Postings = bin_to_postings(PostingsBin),
-			{NewPostings, NewCount} = merge_postings(Postings, Term#term.postings),
+			{NewPostings, {NormalCounter, ExtCounter}} = merge_postings(Postings, Term#term.postings, {NormalPostings, ExtPostings}, {Term#term.normalPostings, Term#term.extPostings}),
 			NewPostingsBin = postings_to_bin(NewPostings),
-			TermBin = <<WordBin/binary, NewCount:?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, NewPostingsBin/binary>>,
+			TermBin = <<WordBin/binary, NormalCounter:?SizeOfCount/unit:8, ExtCounter:?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, NewPostingsBin/binary>>,
 			file:write(FpNew, TermBin),
 			merge_index(Index, NewHashTable, FpOld, FpNew, HashFunction)
 	end.
@@ -266,54 +294,89 @@ hashtable_to_bin([P | HashTable]) ->
 postings_to_bin([]) ->
     <<>>;
 
-postings_to_bin([P | Postings]) ->
-    <<(P#posting.docKey):?SizeOfDocKey/unit:8, (P#posting.docPos):?SizeOfDocPos/unit:8, (postings_to_bin(Postings))/binary>>.
+postings_to_bin([#posting{docKey = DocKey, docPos = DocPos} | Postings]) ->
+    <<?Normal:1/unit:8, DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, (postings_to_bin(Postings))/binary>>;
+
+postings_to_bin([#posting_ext{docKey = DocKey, docPos = DocPos, fieldStart = FieldStart, fieldEnd = FieldEnd} | Postings]) ->
+    <<?Extended:1/unit:8, DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, FieldStart:?SizeOfDocPos/unit:8, FieldEnd:?SizeOfDocPos/unit:8, (postings_to_bin(Postings))/binary>>.
 
 bin_to_postings(<<>>) ->
 	[];
-	
+
 bin_to_postings(PostingsBin) ->
-	<<DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, NewPostingsBin/binary>> = PostingsBin,
-	[(#posting{docKey = DocKey, docPos = DocPos}) | bin_to_postings(NewPostingsBin)]. 
+	<<Type:1/unit:8, Posting/binary>> = PostingsBin,
+	case Type of
+		?Normal ->
+			<<DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, NewPostingsBin/binary>> = Posting,
+			[(#posting{docKey = DocKey, docPos = DocPos}) | bin_to_postings(NewPostingsBin)];
+		?Extended ->
+			<<DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, FieldStart:?SizeOfDocPos/unit:8, FieldEnd:?SizeOfDocPos/unit:8, NewPostingsBin/binary>> = Posting,
+			[(#posting_ext{docKey = DocKey, docPos = DocPos, fieldStart = FieldStart, fieldEnd = FieldEnd}) | bin_to_postings(NewPostingsBin)]
+	end.
 
-merge_postings([], []) ->
-	{[], 0};
+update_counters(#posting{}, {NormalCount, ExtCount}) ->
+	{NormalCount+1, ExtCount};
+update_counters(#posting_ext{}, {NormalCount, ExtCount}) ->
+	{NormalCount, ExtCount+1}.
 
-merge_postings([], MemPostings) ->
-	{MemPostings, length(MemPostings)};
+update_counters(#posting{}, {NormalCount, ExtCount}, decrease) ->
+	{NormalCount-1, ExtCount};
+update_counters(#posting_ext{}, {NormalCount, ExtCount}, decrease) ->
+	{NormalCount, ExtCount-1};
+update_counters({NormalCounter, ExtCounter}, {NormalDecrease, ExtDecrease}, decrease) ->
+	{NormalCounter - NormalDecrease, ExtCounter - ExtDecrease}.
 
-merge_postings(DocPostings, []) ->
-	{DocPostings, length(DocPostings)};
+merge_postings([], [], {0, 0}, {0, 0}) ->
+	{[], {0, 0}};
 
-merge_postings([P1 | DocPostings], [P2 | MemPostings]) ->
-	case P1#posting.docKey < P2#posting.docKey of
+merge_postings([], MemPostings, {0, 0}, MemCounters) ->
+	{MemPostings, MemCounters};
+
+merge_postings(DocPostings, [], DocCounters, {0, 0}) ->
+	{DocPostings, DocCounters};
+
+merge_postings([P1 | DocPostings], [P2 | MemPostings], DocCounters, MemCounters) ->
+	MemPostingKey = extract_key_from_record(P2),
+	DocPostingKey = extract_key_from_record(P1),
+	case DocPostingKey < MemPostingKey of
 		true ->
-			 {NewPostings, Count} = merge_postings(DocPostings, [P2 | MemPostings]),
-			 {[P1 | NewPostings], Count+1};
-		false when P1#posting.docKey > P2#posting.docKey ->
-			{NewPostings, Count} = merge_postings([P1 | DocPostings], MemPostings),
-			{[P2 | NewPostings], Count+1};
+			 DecreasedDocCounters = update_counters(P1, DocCounters, decrease),
+			 {NewPostings, Counters} = merge_postings(DocPostings, [P2 | MemPostings], DecreasedDocCounters, MemCounters),
+			 UpdatedCounters = update_counters(P1, Counters),
+			 {[P1 | NewPostings], UpdatedCounters};
+		false when DocPostingKey > MemPostingKey ->
+			DecreasedMemCounters = update_counters(P2, MemCounters, decrease),
+			{NewPostings, Counters} = merge_postings([P1 | DocPostings], MemPostings, DocCounters, DecreasedMemCounters),
+			UpdatedCounters = update_counters(P2, Counters),
+			{[P2 | NewPostings], UpdatedCounters};
 		false ->
-			{NewPostings, Count} = merge_postings(skip_list(DocPostings, P2#posting.docKey), MemPostings),
-			{[P2 | NewPostings], Count+1}
+			{SkippedList, SkippedCounters} = skip_list(DocPostings, DocPostingKey),
+			DecreasedDocCounters = update_counters(DocCounters, SkippedCounters, decrease),
+			DecreasedMemCounters = update_counters(P2, MemCounters, decrease),
+			{NewPostings, {NormalPostings, ExtPostings}} = merge_postings(SkippedList, MemPostings, DecreasedDocCounters, DecreasedMemCounters),
+			UpdatedCounters = update_counters(P2, NormalPostings, ExtPostings),
+			{[P2 | NewPostings], UpdatedCounters}
 	end.
 
 skip_list([], _DocKey) ->
 	[];
 
 skip_list([P | Postings], DocKey) ->
-	case (P#posting.docKey) of
+	PostingDocKey = extract_key_from_record(P),
+	case PostingDocKey of
 		DocKey ->
-			skip_list(Postings, DocKey);
+			{SkippedList, SkippedCounters} = skip_list(Postings, DocKey),
+			Counters = update_counters(P, SkippedCounters),
+			{SkippedList, Counters};
 		_ ->
-			[P | Postings]
+			{[P | Postings], {0, 0}}
 	end.
 
-find(Word, Index, DBName, HashFunction) -> 
+find(Word, Index, DBName, HashFunction) ->
 	IndexName = DBName++"Index.adbi",
 	{ok, Fp} = file:open(IndexName, [read, write, binary]),
-	
-	MemTerm = 
+
+	MemTerm =
 		case find_term(Index, Word) of
 			not_found ->
 				#term{postings = []};
@@ -321,7 +384,7 @@ find(Word, Index, DBName, HashFunction) ->
 				Term
 		end,
 	DocTerm = find_doc_term(Fp, HashFunction, Word),
-	{Postings, _} = merge_postings(DocTerm#term.postings, MemTerm#term.postings),
+	{Postings, _} = merge_postings(DocTerm#term.postings, MemTerm#term.postings, {DocTerm#term.normalPostings, DocTerm#term.normalPostings}, {MemTerm#term.normalPostings, MemTerm#term.normalPostings}),
 	map_postings(Postings).
 
 find_doc_term(Fp, HashFunction, Word) ->
@@ -339,12 +402,12 @@ find_term(Fp, TermPointer, Word) ->
 	{ok, _} = file:position(Fp, {bof, TermPointer}),
 	{ok, TermWordBin} = file:read(Fp, ?SizeOfWord),
 	TermWord = lists:takewhile(fun(X) -> X /= 0 end, binary_to_list(TermWordBin)),
-	{ok, <<Count:?SizeOfCount/unit:8, NextTerm:?SizeOfPointer/unit:8>>} = file:read(Fp, ?SizeOfCount + ? SizeOfPointer),
+	{ok, <<NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, NextTerm:?SizeOfPointer/unit:8>>} = file:read(Fp, 2*?SizeOfCount + ? SizeOfPointer),
 	case Word of
 		TermWord ->
-			{ok, PostingsBin} = file:read(Fp, Count*?SizeOfPosting),
+			{ok, PostingsBin} = file:read(Fp, (NormalPostings*?SizeOfPosting) + (ExtPostings*?SizeOfExtPosting)),
 			Postings = bin_to_postings(PostingsBin),
-			#term{word = Word, count = Count, postings = Postings};
+			#term{word = Word, normalPostings = NormalPostings, extPostings = ExtPostings, postings = Postings};
 		_ ->
 			find_term(Fp, NextTerm, Word)
 	end.
@@ -352,8 +415,10 @@ find_term(Fp, TermPointer, Word) ->
 map_postings([]) ->
 	[];
 
-map_postings([P | Postings]) ->
-	[{P#posting.docKey, P#posting.docPos} | map_postings(Postings)]. 
+map_postings([#posting{docKey = DocKey, docPos = DocPos} | Postings]) ->
+	[{{docKey, DocKey}, {docPos, DocPos}} | map_postings(Postings)];
+map_postings([#posting_ext{docKey = DocKey, docPos = DocPos, fieldStart = FieldStart, fieldEnd = FieldEnd} | Postings]) ->
+	[{{docKey, DocKey}, {docPos, DocPos}, {fieldStart, FieldStart}, {fieldEnd, FieldEnd}} | map_postings(Postings)].
 
 bin_to_hashtable(<<>>) ->
 	[];
@@ -366,9 +431,3 @@ hash(Word) ->
 	Bin = crypto:hash(md4, Word),
 	<<_:8/unit:8, Hash:8/unit:8>> = Bin,
 	Hash.
-
-
-
-
-  
-
