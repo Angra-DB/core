@@ -1,6 +1,7 @@
 .eunit
 deps
 *.o
+*.adb
 *.beam
 *.plt
 *.erl~
