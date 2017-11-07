@@ -359,7 +359,7 @@ merge_postings([P1 | DocPostings], [P2 | MemPostings], DocCounters, MemCounters)
 	end.
 
 skip_list([], _DocKey) ->
-	[];
+	{[], {0, 0}};
 
 skip_list([P | Postings], DocKey) ->
 	PostingDocKey = extract_key_from_record(P),
@@ -431,3 +431,34 @@ hash(Word) ->
 	Bin = crypto:hash(md4, Word),
 	<<_:8/unit:8, Hash:8/unit:8>> = Bin,
 	Hash.
+
+% Version Control
+
+start_table() ->
+	ets:new(doc_versions, [set, protected, named_table]).
+
+append_doc_version(DocKey, DocVersion, Fp) ->
+	{ok, _} = file:position(Fp, eof),
+	file:write(Fp, <<DocKey:?SizeOfDocKey/unit:8, DocVersion:?SizeOfVersion/unit:8>>).
+
+insert_doc_version(DocKey, DocVersion, Pointer, Fp) ->
+	{ok, _} = file:position(Fp, {bof, Pointer}),
+	file:write(Fp, <<DocKey:?SizeOfDocKey/unit:8, DocVersion:?SizeOfVersion/unit:8>>).
+
+add_doc_version(DocKey, DocVersion, DbName) ->
+	{ok, Fp} = file:open(DbName++"Versions.adb", [read, write, binary, exclusive]),
+	case ets:lookup(doc_versions, DocKey) of
+		[] ->
+			Pointer = append_doc_version(DocKey, DocVersion, Fp);
+		[{DocKey, _, Pointer}] ->
+			insert_doc_version(DocKey, DocVersion, Pointer, Fp)
+	end,
+	ets:insert(doc_versions, {DocKey, DocVersion, Pointer}).
+
+lookup_version(DocKey) ->
+	case ets:lookup(doc_versions, DocKey) of
+		[] ->
+			not_found;
+		[{DocKey, Version, _}] ->
+			{DocKey, Version}
+	end.
