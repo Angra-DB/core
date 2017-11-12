@@ -213,97 +213,40 @@ update_index(Index, DBName, HashFunction) ->
 	file:delete(IndexName),
 	file:rename("."++IndexName, IndexName).
 
+merge_index([], DocTerm, PostingsBin, HashTable, FpOld, FpNew, HashFunction) ->
+	NewHashTable = save_term(DocTerm, PostingsBin, FpNew, Position, HashTable, HashFunction),
+	merge_index([], NewHashTable, FpOld, FpNew, HashFunction);
 
-merge_index([], HashTable, FpOld, FpNew, HashFunction) ->
-	case read_term(FpOld) of
-		{Term, PostingsBin} ->
-			{ok, Position} = file:position(FpNew, cur),
-			NewHashTable = save_term(Term, PostingsBin, FpNew, Position, HashTable, HashFunction),
-			merge_index([], NewHashTable, FpOld, FpNew, HashFunction);
-		eof ->
-			HashTable
-	end;
+merge_index([MemTerm | Index], DocTerm, PostingsBin, HashTable, FpOld, FpNew, HashFunction) ->
+	{ok, Position} = file:position(FpNew, cur),
+	case MemTerm#term.word < Word of
+		true ->
+			NewHashTable = save_term(MemTerm, FpNew, Position, HashTable, HashFunction),
+			merge_index(Index, DocTerm, PostingsBin, NewHashTable, FpOld, FpNew, HashFunction);
+		false when MemTerm#term.word > Word ->
+			NewHashTable = save_term(DocTerm, PostingsBin, FpNew, Position, HashTable, HashFunction),
+			merge_index([MemTerm | Index], NewHashTable, FpOld, FpNew, HashFunction);
+		false ->
+			NewHashTable = save_term(MemTerm, DocTerm, PostingsBin, FpNew, Position, HashTable, HashFunction),
+			merge_index(Index, NewHashTable, FpOld, FpNew, HashFunction)
+	end.
 
-merge_index([MemTerm | Index], HashTable, FpOld, FpNew, HashFunction) ->
+merge_index(Index, HashTable, FpOld, FpNew, HashFunction) ->
 	{ok, Position} = file:position(FpNew, cur),
 	case read_term(FpOld) of
 		{DocTerm, PostingsBin} ->
-			case MemTerm#term.word < Word of
-				true ->
-					NewHashTable = save_term(MemTerm, FpNew, Position, HashTable, HashFunction),
-					DocTermBin = term_to_bin(DocTerm),
-					merge_index(Index, DocTermBin, NewHashTable, FpOld, FpNew, HashFunction);
-				false when MemTerm#term.word > Word ->
-					NewHashTable = save_term(DocTerm, PostingsBin, FpNew, Position, HashTable, HashFunction),
-					merge_index([MemTerm | Index], NewHashTable, FpOld, FpNew, HashFunction);
-				false ->
-					NewHashTable = save_term(MemTerm, DocTerm, PostingsBin, FpNew, Position, HashTable, HashFunction),
-					merge_index(Index, NewHashTable, FpOld, FpNew, HashFunction)
-			end;
+			merge_index(Index, DocTerm, PostingsBin, NewHashTable, FpOld, FpNew, HashFunction);
 		eof ->
-			NewHashTable = save_term(MemTerm, FpNew, Position, HashTable, HashFunction),
 			merge_index(Index, NewHashTable, FpNew, HashFunction)
 	end.
 
 merge_index([], HashTable, _, _) ->
 	HashTable;
 
-merge_index([Term | Index], HashTable, FpNew, HashFunction) ->
+merge_index([MemTerm | Index], HashTable, FpNew, HashFunction) ->
 	{ok, Position} = file:position(FpNew, cur),
-	Hash = (HashFunction(Term#term.word) rem ?HashSize) + 1,
-	NewNextTerm = lists:nth(Hash, HashTable),
-	NewHashTable = lists:sublist(HashTable, Hash - 1) ++ [Position | lists:nthtail(Hash, HashTable)],
-	NewPostingsBin = postings_to_bin(Term#term.postings),
-	WordList = Term#term.word ++ lists:duplicate(?SizeOfWord - length(Term#term.word), 0),
-	NewWordBin = list_to_binary(WordList),
-	NewTermBin = <<NewWordBin/binary, (Term#term.normalPostings):?SizeOfCount/unit:8, (Term#term.extPostings):?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, NewPostingsBin/binary>>,
-	file:write(FpNew, NewTermBin),
+	NewHashTable = save_term(MemTerm, FpNew, Position, HashTable, HashFunction),
 	merge_index(Index, NewHashTable, FpNew, HashFunction).
-
-merge_index([], DocTermBin, HashTable, FpOld, FpNew, HashFunction) ->
-	<<WordBin:?SizeOfWord/binary, NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, _NextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>> = DocTermBin,
-	Word = lists:takewhile(fun(X) -> X /= 0 end, binary_to_list(WordBin)),
-	{ok, Position} = file:position(FpNew, cur),
-	Hash = (HashFunction(Word) rem ?HashSize) + 1,
-	NewNextTerm = lists:nth(Hash, HashTable),
-	NewHashTable = lists:sublist(HashTable, Hash - 1) ++ [Position] ++ lists:nthtail(Hash, HashTable),
-	TermBin = <<WordBin/binary, NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>>,
-	file:write(FpNew, TermBin),
-	merge_index([], NewHashTable, FpOld, FpNew, HashFunction);
-
-merge_index([Term | Index], DocTermBin, HashTable, FpOld, FpNew, HashFunction) ->
-	<<WordBin:?SizeOfWord/binary, NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, _NextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>> = DocTermBin,
-	Word = lists:takewhile(fun(X) -> X /= 0 end, binary_to_list(WordBin)),
-	{ok, Position} = file:position(FpNew, cur),
-	case Term#term.word < Word of
-		true ->
-			Hash = (HashFunction(Term#term.word) rem ?HashSize) + 1,
-			NewNextTerm = lists:nth(Hash, HashTable),
-			NewHashTable = lists:sublist(HashTable, Hash - 1) ++ [Position] ++ lists:nthtail(Hash, HashTable),
-			NewPostingsBin = postings_to_bin(Term#term.postings),
-			WordList = Term#term.word ++ lists:duplicate(?SizeOfWord - length(Term#term.word), 0),
-			NewWordBin = list_to_binary(WordList),
-			NewTermBin = <<NewWordBin/binary, (Term#term.normalPostings):?SizeOfCount/unit:8, (Term#term.extPostings):?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, NewPostingsBin/binary>>,
-			file:write(FpNew, NewTermBin),
-			merge_index(Index, DocTermBin, NewHashTable, FpOld, FpNew, HashFunction);
-		false when Term#term.word > Word ->
-			Hash = (HashFunction(Word) rem ?HashSize) + 1,
-			NewNextTerm = lists:nth(Hash, HashTable),
-			NewHashTable = lists:sublist(HashTable, Hash - 1) ++ [Position] ++ lists:nthtail(Hash, HashTable),
-			TermBin = <<WordBin/binary, NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>>,
-			file:write(FpNew, TermBin),
-			merge_index([Term | Index], NewHashTable, FpOld, FpNew, HashFunction);
-		false ->
-			Hash = (HashFunction(Word) rem ?HashSize) + 1,
-			NewNextTerm = lists:nth(Hash, HashTable),
-			NewHashTable = lists:sublist(HashTable, Hash - 1) ++ [Position] ++ lists:nthtail(Hash, HashTable),
-			Postings = bin_to_postings(PostingsBin),
-			{NewPostings, {NormalCounter, ExtCounter}} = merge_postings(Postings, Term#term.postings, {NormalPostings, ExtPostings}, {Term#term.normalPostings, Term#term.extPostings}),
-			NewPostingsBin = postings_to_bin(NewPostings),
-			TermBin = <<WordBin/binary, NormalCounter:?SizeOfCount/unit:8, ExtCounter:?SizeOfCount/unit:8, NewNextTerm:?SizeOfPointer/unit:8, NewPostingsBin/binary>>,
-			file:write(FpNew, TermBin),
-			merge_index(Index, NewHashTable, FpOld, FpNew, HashFunction)
-	end.
 
 hashtable_to_bin([]) ->
 	<<>>;
