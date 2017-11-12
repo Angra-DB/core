@@ -13,9 +13,9 @@
 -define(Normal, 0).
 -define(Extended, 1).
 
--record(posting, {docKey, docPos}).
--record(posting_ext, {docKey, docPos, fieldStart, fieldEnd}).
+-record(posting, {docKey, docPos, docVersion}).
+-record(posting_ext, {docKey, docPos, docVersion, fieldStart, fieldEnd}).
 -record(token, {word, docPos}).
 -record(token_ext, {word, docPos, fieldStart, fieldEnd}).
--record(term, {word, postings, normalPostings, extPostings}). % Implement these two counts in code.
+-record(term, {word, postings, normalPostings, extPostings, nextTerm}). % Implement these two counts in code.
 -record(bucket, {terms, count}).
