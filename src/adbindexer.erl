@@ -8,12 +8,12 @@ create_index(TokenList, DocKey, DocVersion, DbName) ->
 	add_doc_version(DocKey, DocVersion, DbName),
 	create_index(TokenList, DocKey, DocVersion).
 
-create_index([], _DocKey, DocVersion) ->
+create_index([], _DocKey, _DocVersion) ->
 	[];
 
 create_index([_Token = #token{ word = Word, docPos = DocPos } | TokenList], DocKey, DocVersion) ->
 	Index = insert_token(Word, #posting{docKey = DocKey, docPos = DocPos, docVersion = DocVersion}, []),
-	update_mem_index(TokenList, DocKey, DocVersion Index);
+	update_mem_index(TokenList, DocKey, DocVersion, Index);
 
 create_index([_Token = #token_ext{ word = Word, docPos = DocPos, fieldStart = FieldStart, fieldEnd = FieldEnd } | TokenList], DocKey, DocVersion) ->
 	Index = insert_token(Word, #posting_ext{docKey = DocKey, docPos = DocPos, docVersion = DocVersion, fieldStart = FieldStart, fieldEnd = FieldEnd}, []),
@@ -137,41 +137,29 @@ hash_table_insert(Pointer, Hash, HashTable) ->
 	lists:sublist(HashTable, Hash - 1) ++ [Pointer] ++ lists:nthtail(Hash, HashTable).
 
 read_term(Fp) ->
-	case file:read(FpOld, ?SizeOfWord + 2*?SizeOfCount + ?SizeOfPointer) of
-		{ok, <<WordBin/binary, NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, NextTerm:?SizeOfPointer/unit:8>>} ->
+	case file:read(Fp, ?SizeOfWord + 2*?SizeOfCount + ?SizeOfPointer) of
+		{ok, <<WordBin:?SizeOfWord/binary-unit:8, NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, NextTerm:?SizeOfPointer/unit:8>>} ->
 			Word = bin_to_word(WordBin),
-			{ok, <<PostingsBin/binary>>} =  file:read(FpOld, (NormalPostings*?SizeOfPosting) + (ExtPostings*?SizeOfExtPosting)),
-			{#term{word = Word, normalPostings = NormalPostings, extPostings = ExtPostings, nextTerm = NextTerm}, PostingsBin};
+			{ok, <<PostingsBin/binary>>} =  file:read(Fp, (NormalPostings*?SizeOfPosting) + (ExtPostings*?SizeOfExtPosting)),
+			{ok, #term{word = Word, normalPostings = NormalPostings, extPostings = ExtPostings, nextTerm = NextTerm, postings = bin_to_postings(PostingsBin)}};
 		R ->
 			R
 	end.
 
-save_term(Term, Fp, Pointer, HashTable, HashFunction) ->
+save_term(Term, Fp, HashTable, HashFunction) ->
+	{ok, Pointer} = file:position(Fp, cur),
 	{NewNextTerm, Hash} = hash_table_get(Term#term.word, HashTable, HashFunction),
 	NewHashTable = hash_table_insert(Pointer, Hash, HashTable),
 	NewTermBin = term_to_bin(Term#term{nextTerm = NewNextTerm}),
-	file:write(FpNew, NewTermBin),
+	file:write(Fp, NewTermBin),
 	NewHashTable.
 
-save_term(Term, PostingsBin, Fp, Pointer, HashTable, HashFunction) ->
-	{NewNextTerm, Hash} = hash_table_get(Term#term.word, HashTable, HashFunction),
-	NewHashTable = hash_table_insert(Pointer, Hash, HashTable),
-	NewTermBin = term_to_bin(Term#term{nextTerm = NewNextTerm}, PostingsBin),
-	file:write(FpNew, NewTermBin),
-	NewHashTable.
+save_term(MemTerm, DocTerm, Fp, HashTable, HashFunction) ->
+	{NewPostings, {NormalCounter, ExtCounter}} = merge_postings(DocTerm#term.postings, MemTerm#term.postings, {DocTerm#term.normalPostings, DocTerm#term.extPostings}, {MemTerm#term.normalPostings, MemTerm#term.extPostings}),
+	save_term(MemTerm#term{ normalPostings = NormalCounter, extPostings = ExtCounter, postings = NewPostings}, Fp, HashTable, HashFunction).
 
-save_term(MemTerm, DocTerm, PostingsBin, Fp, Pointer, HashTable, HashFunction) ->
-	DocPostings = bin_to_postings(PostingsBin),
-	{NewPostings, {NormalCounter, ExtCounter}} = merge_postings(DocPostings, MemTerm#term.postings, {DocTerm#term.normalPostings, DocTerm#term.extPostings}, {MemTerm#term.normalPostings, MemTerm#term.extPostings}),
-	NewPostingsBin = postings_to_bin(NewPostings),
-	save_term(MemTerm#term{ normalPostings = NormalCounter, extPostings = ExtCounter}, NewPostingsBin, Fp, Pointer, HashTable, HashFunction).
-
-term_to_bin(Term = #term{postings = Postings}) ->
+term_to_bin(#term{word = Word, normalPostings = NormalPostings, extPostings = ExtPostings, nextTerm = NextTerm, postings = Postings}) ->	
 	PostingsBin = postings_to_bin(Postings),
-	term_to_bin(Term, PostingsBin).
-	
-
-term_to_bin(#term{word = Word, normalPostings = NormalPostings, extPostings = ExtPostings, nextTerm = NextTerm}, PostingsBin) ->	
 	WordBin = word_to_bin(Word),
 	<<WordBin/binary, NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, NextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>>.
 
@@ -194,12 +182,8 @@ save_index(Index, DBName, HashFunction) ->
 write_index([], HashTable, _Fp, _HashFunction) ->
 	HashTable;
 
-write_index([Term = #term{word = Word, normalPostings = NormalPostings, extPostings = ExtPostings, postings = Postings} | Index], HashTable, Fp, HashFunction) ->
-	{ok, Position} = file:position(Fp, cur),
-	{NextTerm, Hash} = hash_table_get(Word, HashTable, HashFunction),
-	NewHashTable = insert_in_hash_table(Position, Hash, HashTable),
-	TermBin = term_to_bin(Term),
-	file:write(Fp, TermBin),
+write_index([Term | Index], HashTable, Fp, HashFunction) ->
+	NewHashTable = save_term(Term, Fp, HashTable, HashFunction),
 	write_index(Index, NewHashTable, Fp, HashFunction).
 
 update_index(Index, DBName, HashFunction) ->
@@ -221,39 +205,36 @@ update_index(Index, DBName, HashFunction) ->
 	file:delete(IndexName),
 	file:rename("."++IndexName, IndexName).
 
-merge_index([], DocTerm, PostingsBin, HashTable, FpOld, FpNew, HashFunction) ->
-	NewHashTable = save_term(DocTerm, PostingsBin, FpNew, Position, HashTable, HashFunction),
+merge_index([], DocTerm, HashTable, FpOld, FpNew, HashFunction) ->
+	NewHashTable = save_term(DocTerm, FpNew, HashTable, HashFunction),
 	merge_index([], NewHashTable, FpOld, FpNew, HashFunction);
 
-merge_index([MemTerm | Index], DocTerm, PostingsBin, HashTable, FpOld, FpNew, HashFunction) ->
-	{ok, Position} = file:position(FpNew, cur),
-	case MemTerm#term.word < Word of
+merge_index([MemTerm | Index], DocTerm, HashTable, FpOld, FpNew, HashFunction) ->
+	case MemTerm#term.word < DocTerm#term.word of
 		true ->
-			NewHashTable = save_term(MemTerm, FpNew, Position, HashTable, HashFunction),
-			merge_index(Index, DocTerm, PostingsBin, NewHashTable, FpOld, FpNew, HashFunction);
-		false when MemTerm#term.word > Word ->
-			NewHashTable = save_term(DocTerm, PostingsBin, FpNew, Position, HashTable, HashFunction),
+			NewHashTable = save_term(MemTerm, FpNew, HashTable, HashFunction),
+			merge_index(Index, DocTerm, NewHashTable, FpOld, FpNew, HashFunction);
+		false when MemTerm#term.word > DocTerm#term.word ->
+			NewHashTable = save_term(DocTerm, FpNew, HashTable, HashFunction),
 			merge_index([MemTerm | Index], NewHashTable, FpOld, FpNew, HashFunction);
 		false ->
-			NewHashTable = save_term(MemTerm, DocTerm, PostingsBin, FpNew, Position, HashTable, HashFunction),
+			NewHashTable = save_term(MemTerm, DocTerm, FpNew, HashTable, HashFunction),
 			merge_index(Index, NewHashTable, FpOld, FpNew, HashFunction)
 	end.
 
-merge_index(Index, HashTable, FpOld, FpNew, HashFunction) ->
-	{ok, Position} = file:position(FpNew, cur),
+merge_index(MemIndex, HashTable, FpOld, FpNew, HashFunction) ->
 	case read_term(FpOld) of
-		{DocTerm, PostingsBin} ->
-			merge_index(Index, DocTerm, PostingsBin, NewHashTable, FpOld, FpNew, HashFunction);
+		{ok, DocTerm} ->
+			merge_index(MemIndex, DocTerm, HashTable, FpOld, FpNew, HashFunction);
 		eof ->
-			merge_index(Index, NewHashTable, FpNew, HashFunction)
+			merge_index(MemIndex, HashTable, FpNew, HashFunction)
 	end.
 
 merge_index([], HashTable, _, _) ->
 	HashTable;
 
 merge_index([MemTerm | Index], HashTable, FpNew, HashFunction) ->
-	{ok, Position} = file:position(FpNew, cur),
-	NewHashTable = save_term(MemTerm, FpNew, Position, HashTable, HashFunction),
+	NewHashTable = save_term(MemTerm, FpNew, HashTable, HashFunction),
 	merge_index(Index, NewHashTable, FpNew, HashFunction).
 
 hashtable_to_bin([]) ->
@@ -283,13 +264,13 @@ bin_to_postings(<<>>) ->
 	[];
 
 bin_to_postings(PostingsBin) ->
-	<<Type:1/unit:8, Posting/binary>> = PostingsBin,
+	<<Type:1/unit:8, PostingBin/binary>> = PostingsBin,
 	case Type of
 		?Normal ->
-			<<DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, DocVersion:?SizeOfVersion/unit:8, NewPostingsBin/binary>> = Posting,
+			<<DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, DocVersion:?SizeOfVersion/unit:8, NewPostingsBin/binary>> = PostingBin,
 			Posting = #posting{docKey = DocKey, docPos = DocPos, docVersion = DocVersion};
 		?Extended ->
-			<<DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, DocVersion:?SizeOfVersion/unit:8, FieldStart:?SizeOfDocPos/unit:8, FieldEnd:?SizeOfDocPos/unit:8, NewPostingsBin/binary>> = Posting,
+			<<DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, DocVersion:?SizeOfVersion/unit:8, FieldStart:?SizeOfDocPos/unit:8, FieldEnd:?SizeOfDocPos/unit:8, NewPostingsBin/binary>> = PostingBin,
 			Posting = #posting_ext{docKey = DocKey, docPos = DocPos, docVersion = DocVersion, fieldStart = FieldStart, fieldEnd = FieldEnd}
 	end,
 	insert_if_current_version(Posting, DocKey, DocVersion, bin_to_postings(NewPostingsBin)).
@@ -298,7 +279,9 @@ insert_if_current_version(Posting, DocKey, DocVersion, PostingsList) ->
 	{DocKey, CurrentVersion} = lookup_doc_version(DocKey),
 	case CurrentVersion of
 		DocVersion ->
-			[Posting | bin_to_postings(NewPostingsBin)]
+			[Posting | PostingsList];
+		_ ->
+			PostingsList
 	end.
 
 update_counters(#posting{}, {NormalCount, ExtCount}) ->
@@ -389,9 +372,9 @@ find_term(Fp, TermPointer, Word) ->
 	{ok, _} = file:position(Fp, {bof, TermPointer}),
 	{ok, TermWordBin} = file:read(Fp, ?SizeOfWord),
 	TermWord = lists:takewhile(fun(X) -> X /= 0 end, binary_to_list(TermWordBin)),
-	{ok, <<NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, NextTerm:?SizeOfPointer/unit:8>>} = file:read(Fp, 2*?SizeOfCount + ? SizeOfPointer),
 	case Word of
 		TermWord ->
+			{ok, <<NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, NextTerm:?SizeOfPointer/unit:8>>} = file:read(Fp, 2*?SizeOfCount + ? SizeOfPointer),
 			{ok, PostingsBin} = file:read(Fp, (NormalPostings*?SizeOfPosting) + (ExtPostings*?SizeOfExtPosting)),
 			Postings = bin_to_postings(PostingsBin),
 			#term{word = Word, normalPostings = NormalPostings, extPostings = ExtPostings, postings = Postings};
