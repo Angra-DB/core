@@ -4,6 +4,10 @@
 
 % InvertedIndex -> index that is being built
 
+create_index(TokenList, DocKey, DocVersion, DbName) ->
+	add_doc_version(DocKey, DocVersion, DbName),
+	create_index(TokenList, DocKey, DocVersion).
+
 create_index([], _DocKey, DocVersion) ->
 	[];
 
@@ -13,6 +17,10 @@ create_index([_Token = #token{ word = Word, docPos = DocPos } | TokenList], DocK
 
 create_index([_Token = #token_ext{ word = Word, docPos = DocPos, fieldStart = FieldStart, fieldEnd = FieldEnd } | TokenList], DocKey, DocVersion) ->
 	Index = insert_token(Word, #posting_ext{docKey = DocKey, docPos = DocPos, docVersion = DocVersion, fieldStart = FieldStart, fieldEnd = FieldEnd}, []),
+	update_mem_index(TokenList, DocKey, DocVersion, Index).
+
+update_mem_index(TokenList, DocKey, DocVersion, Index, DbName) ->
+	add_doc_version(DocKey, DocVersion, DbName),
 	update_mem_index(TokenList, DocKey, DocVersion, Index).
 
 update_mem_index([], _DocKey, _DocVersion, Index) ->
@@ -257,11 +265,19 @@ hashtable_to_bin([P | HashTable]) ->
 postings_to_bin([]) ->
     <<>>;
 
-postings_to_bin([#posting{docKey = DocKey, docPos = DocPos} | Postings]) ->
-    <<?Normal:1/unit:8, DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, (postings_to_bin(Postings))/binary>>;
+postings_to_bin([#posting{docKey = DocKey, docPos = DocPos, docVersion = DocVersion} | Postings]) ->
+	{DocKey, CurrentVersion} = lookup_doc_version(DocKey),
+	case CurrentVersion of
+		DocVersion ->
+			<<?Normal:1/unit:8, DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, DocVersion:?SizeOfVersion/unit:8, (postings_to_bin(Postings))/binary>>
+	end;
 
-postings_to_bin([#posting_ext{docKey = DocKey, docPos = DocPos, fieldStart = FieldStart, fieldEnd = FieldEnd} | Postings]) ->
-    <<?Extended:1/unit:8, DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, FieldStart:?SizeOfDocPos/unit:8, FieldEnd:?SizeOfDocPos/unit:8, (postings_to_bin(Postings))/binary>>.
+postings_to_bin([#posting_ext{docKey = DocKey, docPos = DocPos, docVersion = DocVersion, fieldStart = FieldStart, fieldEnd = FieldEnd} | Postings]) ->
+	{DocKey, CurrentVersion} = lookup_doc_version(DocKey),
+	case CurrentVersion of
+		DocVersion ->
+			<<?Extended:1/unit:8, DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, DocVersion:?SizeOfVersion/unit:8, FieldStart:?SizeOfDocPos/unit:8, FieldEnd:?SizeOfDocPos/unit:8, (postings_to_bin(Postings))/binary>>
+	end.
 
 bin_to_postings(<<>>) ->
 	[];
@@ -270,11 +286,19 @@ bin_to_postings(PostingsBin) ->
 	<<Type:1/unit:8, Posting/binary>> = PostingsBin,
 	case Type of
 		?Normal ->
-			<<DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, NewPostingsBin/binary>> = Posting,
-			[(#posting{docKey = DocKey, docPos = DocPos}) | bin_to_postings(NewPostingsBin)];
+			<<DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, DocVersion:?SizeOfVersion/unit:8, NewPostingsBin/binary>> = Posting,
+			Posting = #posting{docKey = DocKey, docPos = DocPos, docVersion = DocVersion};
 		?Extended ->
-			<<DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, FieldStart:?SizeOfDocPos/unit:8, FieldEnd:?SizeOfDocPos/unit:8, NewPostingsBin/binary>> = Posting,
-			[(#posting_ext{docKey = DocKey, docPos = DocPos, fieldStart = FieldStart, fieldEnd = FieldEnd}) | bin_to_postings(NewPostingsBin)]
+			<<DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, DocVersion:?SizeOfVersion/unit:8, FieldStart:?SizeOfDocPos/unit:8, FieldEnd:?SizeOfDocPos/unit:8, NewPostingsBin/binary>> = Posting,
+			Posting = #posting_ext{docKey = DocKey, docPos = DocPos, docVersion = DocVersion, fieldStart = FieldStart, fieldEnd = FieldEnd}
+	end,
+	insert_if_current_version(Posting, DocKey, DocVersion, bin_to_postings(NewPostingsBin)).
+
+insert_if_current_version(Posting, DocKey, DocVersion, PostingsList) ->
+	{DocKey, CurrentVersion} = lookup_doc_version(DocKey),
+	case CurrentVersion of
+		DocVersion ->
+			[Posting | bin_to_postings(NewPostingsBin)]
 	end.
 
 update_counters(#posting{}, {NormalCount, ExtCount}) ->
