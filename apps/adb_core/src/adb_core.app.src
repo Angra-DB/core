@@ -1,0 +1,7 @@
+{application, adb_core, [
+ {description, "The angra-db core persistence service."},
+ {vsn, "0.0.1"},
+ {modules, []},
+ {registered, [adb_core_sup]},
+ {applications, [kernel, stdlib, lager]}
+]}.

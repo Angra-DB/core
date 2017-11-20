@@ -1,30 +1,15 @@
--module(adb_app). 
-
+-module(adb_server_app). 
 % The purpose of an active application is 
 % to run one or more processes. In order to 
 % have some control over those process, they 
 % showld be spawned and managed by supervisors: 
 % processes that implements the supervisor 
 % behavior. 
-
 -behavior(application). 
 
--export([start/2, stop/1, kickoff/1]).
+-export([start/2, stop/1]).
 
--define(DEFAULT_PORT, 1234). 
-
-% this operation is called when the 
-% OTP system wants to start our application. 
-% actually, this is the most relevant 
-% operation of this model, which is responsible 
-% for starting the root supervisor. 
-kickoff(core) ->
-    application:start(adb_core);
-kickoff(all) ->
-    lager:start(),
-    application:start(adb_core);
-kickoff(_) ->
-    invalid_argument.
+-define(DEFAULT_PORT, 1234).
 
 start(_Type, _StartArgs) ->
 
@@ -37,8 +22,8 @@ start(_Type, _StartArgs) ->
 
     lager:info("Listening to TCP requests on port ~w ~n", [Port]),
   
-    case adb_sup:start_link(LSock, _StartArgs) of
-      {ok, Pid} -> adb_sup:start_child(),
+    case adb_server_sup:start_link(LSock, _StartArgs) of
+      {ok, Pid} -> adb_server_sup:start_child(),
                    {ok, Pid};
       Other     -> error_logger:error_msg(" error: ~s", [Other]),
                    {error, Other}

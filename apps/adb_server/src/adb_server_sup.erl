@@ -1,6 +1,6 @@
--module(adb_sup).
+-module(adb_server_sup).
 
-% As explained before (see the adb_app.erl module), 
+% As explained before (see the adb_server_app.erl module), 
 % an active OTP application consists of one or more 
 % process that do the work (that is, they receive 
 % server side requests and manipulate our database). 
@@ -33,15 +33,15 @@ init([LSock, Persistence]) ->
     Server = {adb_server, {adb_server, start_link, [LSock, Persistence]}, % {Id, Start, Restart, ... }
 	      temporary, brutal_kill, worker, [adb_server]},
     RestartStrategy = {simple_one_for_one, 1000, 3600},  % {How, Max, Within} ... Max restarts within a period
-    {ok, {RestartStrategy, [Server]}}. 
- 
+    {ok, {RestartStrategy, [Server]}}.
+
 setup_persistence(Args) ->
     lager:info("Setting up the persistence module.", []),
     case proplists:get_value(persistence, Args) of
 	hanoidb -> lager:info("Starting HanoiDB..."),
-                 hanoidb_persistence;		
-        ets     -> lager:info("Starting ets..."),
-		 ets_persistence;
-	_ -> lager:info("starting ADBtree"),
-		adbtree_persistence
+               hanoidb_persistence;		
+    ets     -> lager:info("Starting ets..."),
+		       ets_persistence;
+	_       -> lager:info("starting ADBtree"),
+		       adbtree_persistence
     end.

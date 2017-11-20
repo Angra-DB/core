@@ -1,0 +1,8 @@
+{application, adb_server, [
+ {description, "The angra-db TCP server."},
+ {vsn, "0.0.1"},
+ {modules, []},
+ {registered, [adb_server_sup]},
+ {applications, [kernel, stdlib, lager, adb_core]},
+ {mod, {adb_core_app, [{persistence, adbtree}]}} %% {persistence, ets | hanoidb | adbtree}
+]}.
