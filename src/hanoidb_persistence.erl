@@ -9,29 +9,39 @@ setup([DBName]) ->
     Tree.
 
 connect(DB) ->
-    ok. 
+    {ok, Tree} = hanoidb:open(DB),
+    ok.
 
 createDB(DB) ->
-    ok. 
+    {ok, Tree} = hanoidb:open(DB),
+    ok.
 
 teardown(Tree) ->
     hanoidb:close(Tree).
 
 save(Tree, Key, Value) ->
-    hanoidb:put(Tree, list_to_binary(Key), list_to_binary(Value)), 
+    {ok, Tree0} = hanoidb:open(Tree),
+    ok = hanoidb:put(Tree0, list_to_binary(Key), list_to_binary(Value)),
+    hanoidb:close(Tree0),
     Key.
 
 lookup(Tree, Key) ->
   try
-    {ok, Result} = hanoidb:get(Tree, list_to_binary(Key)),
+    {ok, Tree0} = hanoidb:open(Tree),
+    {ok, Result} = hanoidb:get(Tree0, list_to_binary(Key)),
+    hanoidb:close(Tree0),
     binary_to_list(Result)
   catch
-    _Class:Err -> not_found	
+    _Class:Err -> not_found
   end.
 
 delete(Tree, Key) ->
-    hanoidb:delete(Tree, list_to_binary(Key)).
+  {ok, Tree0} = hanoidb:open(Tree),
+  hanoidb:delete(Tree0, list_to_binary(Key)).
 
 update(Tree, Key, Value) ->
     delete(Tree, Key),
-    save(Tree, Key, Value).
+    {ok, Tree0} = hanoidb:open(Tree),
+    ok = hanoidb:put(Tree0, list_to_binary(Key), list_to_binary(Value)),
+    hanoidb:close(Tree0),
+    ok.

@@ -115,6 +115,9 @@ evaluate_request(Socket, State, Tokens) ->
         {"create_db", Database} ->
             persist(Socket, State#state.persistence, Database, Tokens),
             State;
+        {none, Command} ->
+            gen_tcp:send(Socket, io_lib:fwrite("~p is an invalid command~n", [Command])),
+            State;
         _ ->
             persist(Socket, State#state.persistence, State#state.current_db, Tokens),
             State
@@ -129,8 +132,8 @@ connect(Socket, State, Database) ->
     case Res of
         db_does_not_exist ->
             gen_tcp:send(Socket, io_lib:fwrite("Database ~p does not exist~n", [Database])),
-	    State;
-	ok ->
+      State;
+  ok ->
             NewState = State#state{ current_db = list_to_atom(Database) },
             gen_tcp:send(Socket, io_lib:fwrite("Database set to ~p...~n", [Database])),
             NewState
@@ -153,11 +156,12 @@ preprocess(RawData) ->
     _trim = lists:reverse(lists:dropwhile(Pred, _reverse)),
     {Command, Args} = split(_trim),
     case filter_command(Command) of
-      []         -> throw(invalid_command);
+      []         -> {none, Command};
       ["update"] -> {Command, split(Args)};
 			["save_key"] -> {Command, split(Args)};
       _          -> {Command, Args}
     end.
+
 
 filter_command(Command) ->
     ValidCommands = ["save", "save_key", "lookup", "update", "delete", "connect", "create_db", "delete_db"],

@@ -4,9 +4,9 @@
  {modules, [adb_app, adb_sup, adb_server]},
  {registered, [adb_sup]},
  {applications, [kernel, stdlib, lager]},
- {mod, {adb_app, 
+ {mod, {adb_app,
         % {persistence, ets | hanoidb | adbtree}
-        [{persistence, adbtree}]
+        [{persistence, adb_tree}]
        }
  }
 ]}.

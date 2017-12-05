@@ -4,7 +4,7 @@
 
 -export([setup/1, teardown/1, createDB/1, connect/1, save/3, lookup/2, update/3, delete/2]).
 
-setup([]) -> 
+setup([]) ->
   none;
 
 setup([DBName]) ->
@@ -23,7 +23,7 @@ connect(DB) ->
     case ets:info(DBName) of
        undefined -> db_does_not_exist;
        _ -> ok
-    end. 
+    end.
 
 save(Tree, Key, Value) ->
     ets:insert(Tree, {Key, Value}),
@@ -37,4 +37,5 @@ delete(Tree, Key) ->
 
 update(Tree, Key, Value) ->
     delete(Tree, Key),
-    save(Tree, Key,Value).
+    ets:insert(Tree, {Key, Value}),
+    ok.
