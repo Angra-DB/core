@@ -40,8 +40,8 @@ setup_persistence(Args) ->
     case proplists:get_value(persistence, Args) of
 	hanoidb -> lager:info("Starting HanoiDB..."),
                hanoidb_persistence;		
-    ets     -> lager:info("Starting ets..."),
+    ets     -> lager:info("Starting ETS..."),
 		       ets_persistence;
-	_       -> lager:info("starting ADBtree"),
+	_       -> lager:info("Starting ADBTree..."),
 		       adbtree_persistence
     end.

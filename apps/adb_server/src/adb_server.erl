@@ -77,7 +77,7 @@ handle_info({tcp_closed, _Socket}, State) ->
 
 handle_info(timeout, #state{lsock = LSock} = State) ->
     {ok, Sock} = gen_tcp:accept(LSock),
-    adb_sup:start_child(),
+    adb_server_sup:start_child(),
     {noreply, State#state{ lsock = Sock }}.
 
 terminate(_Reason, _State) ->
