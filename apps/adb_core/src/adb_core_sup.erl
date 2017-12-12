@@ -12,22 +12,21 @@
 -behavior(supervisor).
 
 %% API
--export([start_link/0, start_child/0]).
+-export([start_link/1, start_child/0]).
 
 %% Supervisor callbacks
 -export([init/1]).
 
 -define(SERVER, ?MODULE).
 
-start_link() ->
-    supervisor:start_link({local, ?SERVER}, ?MODULE, []).
+start_link(Server) ->
+    supervisor:start_link({local, ?SERVER}, ?MODULE, [Server]).
 
 start_child() ->
     supervisor:start_child(?SERVER, []).
 
-init([]) ->
-    ok.
-    % Server = {adb_core, {adb_core, start_link, [Persistence]}, % {Id, Start, Restart, ... }
-	%       temporary, brutal_kill, worker, [adb_core]},
-    % RestartStrategy = {simple_one_for_one, 1000, 3600},  % {How, Max, Within} ... Max restarts within a period
-    % {ok, {RestartStrategy, [Server]}}.
+init([Server]) ->
+    Core = {adb_core, {adb_core, start_link, [Server]}, % {Id, Start, Restart, ...}
+                temporary, brutal_kill, worker, [adb_core]},
+    RestartStrategy = {simple_one_for_one, 1000, 3600}, % {How, Max, Within} ... Max restarts within a period
+    {ok, {RestartStrategy, [Core]}}.

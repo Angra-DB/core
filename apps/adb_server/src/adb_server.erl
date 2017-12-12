@@ -19,7 +19,8 @@
 
 -export([ start_link/2
 	, get_count/0   % we can understand both get_count and stop as adm operations
-	, stop/0]).
+    , stop/0
+    , inform_persistence/0]).
 
 % gen_server callbacks
 -export([ init/1
@@ -54,6 +55,13 @@ get_count() ->
 
 stop() ->
     gen_server:cast(?SERVER, stop).
+
+inform_persistence() ->
+    case #state.persistence of
+        hanoidb -> hanoidb_persistence;		
+        ets     -> ets_persistence;
+        _       -> adbtree_persistence
+    end.
 
 %%%===========================================
 %%% gen_server callbacks
@@ -110,14 +118,11 @@ process_request(Socket, State, RawData) ->
 
 evaluate_request(Socket, State, Tokens) ->
     case Tokens of
-        {"connect", Database} ->
-            connect(Socket, State, Database);
-        {"create_db", Database} ->
-            persist(Socket, State#state.persistence, Database, Tokens),
-            State;
-        _ ->
-            persist(Socket, State#state.persistence, State#state.current_db, Tokens),
-            State
+        {"connect", Database}   -> connect(Socket, State, Database);
+        {"create_db", Database} -> persist(Socket, State#state.persistence, Database, Tokens),
+                                   State;
+        _                       -> persist(Socket, State#state.persistence, State#state.current_db, Tokens),
+                                   State
     end.
 
 %
@@ -125,38 +130,32 @@ evaluate_request(Socket, State, Tokens) ->
 %
 connect(Socket, State, Database) ->
     Persistence = State#state.persistence,
-    Res = gen_persistence:process_request(connect, Database, Database, Persistence),
+    Res = forward(process_request, [connect, Database, Database, Persistence]),
     case Res of
-        db_does_not_exist ->
-            gen_tcp:send(Socket, io_lib:fwrite("Database ~p does not exist~n", [Database])),
-	    State;
-	ok ->
-            NewState = State#state{ current_db = list_to_atom(Database) },
-            gen_tcp:send(Socket, io_lib:fwrite("Database set to ~p...~n", [Database])),
-            NewState
+        db_does_not_exist -> gen_tcp:send(Socket, io_lib:fwrite("Database ~p does not exist~n", [Database])),
+                             State;
+        ok                -> NewState = State#state{ current_db = list_to_atom(Database) },
+                             gen_tcp:send(Socket, io_lib:fwrite("Database set to ~p...~n", [Database])),
+                             NewState
     end.
 
 
 persist(Socket, _, none, _) ->
     gen_tcp:send(Socket, io_lib:fwrite("Database not set. Please use the 'use' command.~n", []));
-
 persist(Socket, Persistence, CurrentDB, {Command, Args}) ->
-    Res = gen_persistence:process_request(list_to_atom(Command), CurrentDB, Args, Persistence),
-    case Res of
-        _Response ->
-            gen_tcp:send(Socket, io_lib:fwrite("~p~n", [_Response]))
-    end.
+    Res = forward(process_request, [list_to_atom(Command), CurrentDB, Args, Persistence]),
+    gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Res])).
 
 preprocess(RawData) ->
-    _reverse = lists:reverse(RawData),
+    Reverse = lists:reverse(RawData),
     Pred = fun(C) -> (C == $\n) or (C == $\r) end,
-    _trim = lists:reverse(lists:dropwhile(Pred, _reverse)),
-    {Command, Args} = split(_trim),
+    Trim = lists:reverse(lists:dropwhile(Pred, Reverse)),
+    {Command, Args} = split(Trim),
     case filter_command(Command) of
-      []         -> throw(invalid_command);
-      ["update"] -> {Command, split(Args)};
-			["save_key"] -> {Command, split(Args)};
-      _          -> {Command, Args}
+        []           -> throw(invalid_command);
+        ["update"]   -> {Command, split(Args)};
+        ["save_key"] -> {Command, split(Args)};
+        _            -> {Command, Args}
     end.
 
 filter_command(Command) ->
@@ -168,3 +167,11 @@ split(Str) ->
     Pred = fun(A) -> A =/= $  end,
     {Command, Args} = lists:splitwith(Pred, Stripped),
     {Command, string:strip(Args)}.
+
+
+% forward(process_request, Args) when node() == nonode@nohost ->
+%     Res = gen_server:call({global, adb_core}, {process_request, Args})
+% forward(Method, Args) when nodes() =/= [] ->
+%     case rpc:multicall()
+forward(_, _) ->
+    no_core_node_found.

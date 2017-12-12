@@ -7,7 +7,7 @@
     {mod, 
         {adb_server_app, [
             {persistence, adbtree}, %% {persistence, ets | hanoidb | adbtree}
-            {distribution, none}      %% {distribution, short | {long, Host::atom()} | none}
+            {distribution, none}    %% {distribution, short | {long, Host::atom()} | none}
         ]}
     }
 ]}.

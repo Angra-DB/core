@@ -8,10 +8,10 @@ setup([DBName]) ->
     {ok, Tree} = hanoidb:open_link(DBName),
     Tree.
 
-connect(DB) ->
+connect(_DB) ->
     ok. 
 
-createDB(DB) ->
+createDB(_DB) ->
     ok. 
 
 teardown(Tree) ->
@@ -26,7 +26,7 @@ lookup(Tree, Key) ->
     {ok, Result} = hanoidb:get(Tree, list_to_binary(Key)),
     binary_to_list(Result)
   catch
-    _Class:Err -> not_found	
+    _Class:_Err -> not_found	
   end.
 
 delete(Tree, Key) ->

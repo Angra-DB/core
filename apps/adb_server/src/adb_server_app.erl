@@ -7,10 +7,20 @@
 % behavior. 
 -behavior(application).
 
+%% API functions
+-export([node_up/1]).
+
 %% Application callbacks
 -export([start/2, stop/1]).
 
 -define(DEFAULT_PORT, 1234).
+
+%%=============================================================================
+%% API functions
+%%=============================================================================
+
+node_up(Node) ->
+    net_kernel:connect_node(Node).
 
 %%=============================================================================
 %% Application callbacks
@@ -21,9 +31,11 @@ start(_Type, StartArgs) ->
     case configure_dist(proplists:get_value(distribution, StartArgs)) of
         {ok, short}      -> lager:info("Application started on shortname distributed mode.");
         {ok, long}       -> lager:info("Application started on longname distributed mode.");
-        {ok, none}       -> lager:info("Application started on standard mode.");
+        {ok, none}       -> lager:info("Application started on standard mode."),
+                            start_core();
         {error, Reason}  -> lager:warning("Application failed to start on distributed mode: ~p.", [Reason]),
-                            lager:info("Application started on standard mode.")
+                            lager:info("Application started on standard mode."),
+                            start_core()
     end,
 
     lager:info("Starting the AngraDB server."), 
@@ -42,11 +54,12 @@ start(_Type, StartArgs) ->
     end.
 
 stop(_State) ->
-    ok. 
+    ok.
 
 %%==============================================================================
 %% Internal functions
 %%==============================================================================
+
 configure_dist(short) ->
     case net_kernel:start([adb_server, shortnames]) of
         {ok, _Pid} -> {ok, short};
@@ -62,3 +75,9 @@ configure_dist(none) ->
     {ok, none};
 configure_dist(_) ->
     {error, "Invalid argument"}.
+
+start_core() ->
+    case application:start(adb_core) of
+        ok              -> ok;
+        {error, _Reason} -> lager:error("The AngraDB core persistence service couldn't be started.")
+    end.

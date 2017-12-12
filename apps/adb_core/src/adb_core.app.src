@@ -3,5 +3,11 @@
  {vsn, "0.0.1"},
  {modules, []},
  {registered, [adb_core_sup]},
- {applications, [kernel, stdlib, lager]}
+ {applications, [kernel, stdlib, lager]},
+ {mod,
+    {adb_core_app, [
+        %% List of host that the adb_core will try to find the server
+        {hosts, ['127.0.0.1']} %% {hosts, ['unb.br', '127.0.0.1']}
+    ]}
+ }
 ]}.
