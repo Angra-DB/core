@@ -133,7 +133,7 @@ hash_table_get(Word, HashTable, HashFunction) ->
 	Hash = calculate_hash(Word, HashFunction),
 	{lists:nth(Hash, HashTable), Hash}.
 
-hash_table_insert(Pointer, Hash, HashTable) ->	
+hash_table_insert(Pointer, Hash, HashTable) ->
 	lists:sublist(HashTable, Hash - 1) ++ [Pointer] ++ lists:nthtail(Hash, HashTable).
 
 read_term(Fp) ->
@@ -141,7 +141,8 @@ read_term(Fp) ->
 		{ok, <<WordBin:?SizeOfWord/binary-unit:8, NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, NextTerm:?SizeOfPointer/unit:8>>} ->
 			Word = bin_to_word(WordBin),
 			{ok, <<PostingsBin/binary>>} =  file:read(Fp, (NormalPostings*?SizeOfPosting) + (ExtPostings*?SizeOfExtPosting)),
-			{ok, #term{word = Word, normalPostings = NormalPostings, extPostings = ExtPostings, nextTerm = NextTerm, postings = bin_to_postings(PostingsBin)}};
+			{Postings, {NormalCounter, ExtCounter}} = bin_to_postings(PostingsBin, {NormalPostings, ExtPostings}),
+			{ok, #term{word = Word, normalPostings = NormalCounter, extPostings = ExtCounter, nextTerm = NextTerm, postings = Postings}};
 		R ->
 			R
 	end.
@@ -158,10 +159,10 @@ save_term(MemTerm, DocTerm, Fp, HashTable, HashFunction) ->
 	{NewPostings, {NormalCounter, ExtCounter}} = merge_postings(DocTerm#term.postings, MemTerm#term.postings, {DocTerm#term.normalPostings, DocTerm#term.extPostings}, {MemTerm#term.normalPostings, MemTerm#term.extPostings}),
 	save_term(MemTerm#term{ normalPostings = NormalCounter, extPostings = ExtCounter, postings = NewPostings}, Fp, HashTable, HashFunction).
 
-term_to_bin(#term{word = Word, normalPostings = NormalPostings, extPostings = ExtPostings, nextTerm = NextTerm, postings = Postings}) ->	
-	PostingsBin = postings_to_bin(Postings),
+term_to_bin(#term{word = Word, normalPostings = NormalPostings, extPostings = ExtPostings, nextTerm = NextTerm, postings = Postings}) ->
+	{PostingsBin, {NormalCounter, ExtCounter}} = postings_to_bin(Postings, {NormalPostings, ExtPostings}),
 	WordBin = word_to_bin(Word),
-	<<WordBin/binary, NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, NextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>>.
+	<<WordBin/binary, NormalCounter:?SizeOfCount/unit:8, ExtCounter:?SizeOfCount/unit:8, NextTerm:?SizeOfPointer/unit:8, PostingsBin/binary>>.
 
 
 % #######
@@ -243,27 +244,29 @@ hashtable_to_bin([]) ->
 hashtable_to_bin([P | HashTable]) ->
 	<<P:1/unit:64, (hashtable_to_bin(HashTable))/binary>>.
 
-postings_to_bin([]) ->
-    <<>>;
+postings_to_bin([], Counters) ->
+    {<<>>, Counters};
 
-postings_to_bin([#posting{docKey = DocKey, docPos = DocPos, docVersion = DocVersion} | Postings]) ->
+postings_to_bin([Posting | Postings], Counters) ->
+	DocKey = extract_key_from_record(Posting),
 	{DocKey, CurrentVersion} = lookup_doc_version(DocKey),
-	case CurrentVersion of
-		DocVersion ->
-			<<?Normal:1/unit:8, DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, DocVersion:?SizeOfVersion/unit:8, (postings_to_bin(Postings))/binary>>
-	end;
-
-postings_to_bin([#posting_ext{docKey = DocKey, docPos = DocPos, docVersion = DocVersion, fieldStart = FieldStart, fieldEnd = FieldEnd} | Postings]) ->
-	{DocKey, CurrentVersion} = lookup_doc_version(DocKey),
-	case CurrentVersion of
-		DocVersion ->
-			<<?Extended:1/unit:8, DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, DocVersion:?SizeOfVersion/unit:8, FieldStart:?SizeOfDocPos/unit:8, FieldEnd:?SizeOfDocPos/unit:8, (postings_to_bin(Postings))/binary>>
+	case {Posting, CurrentVersion} of
+		{#posting{docKey = DocKey, docPos = DocPos, docVersion = DocVersion}, DocVersion} ->
+			{PostingsBin, UpdatedCounters} = postings_to_bin(Postings, Counters),
+			{<<?Normal:1/unit:8, DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, DocVersion:?SizeOfVersion/unit:8, PostingsBin/binary>>, UpdatedCounters};
+		{#posting_ext{docKey = DocKey, docPos = DocPos, docVersion = DocVersion, fieldStart = FieldStart, fieldEnd = FieldEnd}, DocVersion} ->
+			{PostingsBin, UpdatedCounters} = postings_to_bin(Postings, Counters),
+			{<<?Extended:1/unit:8, DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, DocVersion:?SizeOfVersion/unit:8, FieldStart:?SizeOfDocPos/unit:8, FieldEnd:?SizeOfDocPos/unit:8, PostingsBin/binary>>, UpdatedCounters};
+		_ ->
+			{PostingsBin, UpdatedCounters} = postings_to_bin(Postings, Counters),
+			{PostingsBin, update_counters(Posting, UpdatedCounters, decrease)}
 	end.
 
-bin_to_postings(<<>>) ->
-	[];
+bin_to_postings(<<>>, Counters) ->
+	{[], Counters};
 
-bin_to_postings(PostingsBin) ->
+bin_to_postings(PostingsBin, Counters) ->
+	io:format("postingsBin = ~w~n", [PostingsBin]),
 	<<Type:1/unit:8, PostingBin/binary>> = PostingsBin,
 	case Type of
 		?Normal ->
@@ -273,15 +276,16 @@ bin_to_postings(PostingsBin) ->
 			<<DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, DocVersion:?SizeOfVersion/unit:8, FieldStart:?SizeOfDocPos/unit:8, FieldEnd:?SizeOfDocPos/unit:8, NewPostingsBin/binary>> = PostingBin,
 			Posting = #posting_ext{docKey = DocKey, docPos = DocPos, docVersion = DocVersion, fieldStart = FieldStart, fieldEnd = FieldEnd}
 	end,
-	insert_if_current_version(Posting, DocKey, DocVersion, bin_to_postings(NewPostingsBin)).
+	{Postings, UpdatedCounters} = bin_to_postings(NewPostingsBin, Counters),
+	insert_if_current_version(Posting, DocKey, DocVersion, UpdatedCounters, Postings).
 
-insert_if_current_version(Posting, DocKey, DocVersion, PostingsList) ->
+insert_if_current_version(Posting, DocKey, DocVersion, Counters, PostingsList) ->
 	{DocKey, CurrentVersion} = lookup_doc_version(DocKey),
 	case CurrentVersion of
 		DocVersion ->
-			[Posting | PostingsList];
+			{[Posting | PostingsList], Counters};
 		_ ->
-			PostingsList
+			{PostingsList, update_counters(Posting, Counters, decrease)}
 	end.
 
 update_counters(#posting{}, {NormalCount, ExtCount}) ->
@@ -360,24 +364,30 @@ find(Word, Index, DBName, HashFunction) ->
 find_doc_term(Fp, HashFunction, Word) ->
 	Hash = (HashFunction(Word) rem ?HashSize) + 1,
 	{ok, _} = file:position(Fp, bof),
-	{ok, <<HashTableBin/binary>>} = file:read(Fp, ?HashSize*?SizeOfPointer),
-	HashTable = bin_to_hashtable(HashTableBin),
-	TermPointer = lists:nth(Hash, HashTable),
-	find_term(Fp, TermPointer, Word).
+	case file:read(Fp, ?HashSize*?SizeOfPointer) of
+		{ok, <<HashTableBin/binary>>} ->
+			HashTable = bin_to_hashtable(HashTableBin),
+			TermPointer = lists:nth(Hash, HashTable),
+			find_term(Fp, TermPointer, Word);
+		eof ->
+			#term{postings=[], normalPostings=0, extPostings=0}
+	end.
+
+
 
 find_term(_Fp, 0, _Word) ->
-	#term{postings=[]};
+	#term{postings=[], normalPostings=0, extPostings=0};
 
 find_term(Fp, TermPointer, Word) ->
 	{ok, _} = file:position(Fp, {bof, TermPointer}),
 	{ok, TermWordBin} = file:read(Fp, ?SizeOfWord),
 	TermWord = lists:takewhile(fun(X) -> X /= 0 end, binary_to_list(TermWordBin)),
+	{ok, <<NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, NextTerm:?SizeOfPointer/unit:8>>} = file:read(Fp, 2*?SizeOfCount + ? SizeOfPointer),
 	case Word of
 		TermWord ->
-			{ok, <<NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, NextTerm:?SizeOfPointer/unit:8>>} = file:read(Fp, 2*?SizeOfCount + ? SizeOfPointer),
 			{ok, PostingsBin} = file:read(Fp, (NormalPostings*?SizeOfPosting) + (ExtPostings*?SizeOfExtPosting)),
-			Postings = bin_to_postings(PostingsBin),
-			#term{word = Word, normalPostings = NormalPostings, extPostings = ExtPostings, postings = Postings};
+			{Postings, {NormalCounter, ExtCounter}} = bin_to_postings(PostingsBin, {NormalPostings, ExtPostings}),
+			#term{word = Word, normalPostings = NormalCounter, extPostings = ExtCounter, postings = Postings};
 		_ ->
 			find_term(Fp, NextTerm, Word)
 	end.
@@ -385,10 +395,22 @@ find_term(Fp, TermPointer, Word) ->
 map_postings([]) ->
 	[];
 
-map_postings([#posting{docKey = DocKey, docPos = DocPos} | Postings]) ->
-	[{{docKey, DocKey}, {docPos, DocPos}} | map_postings(Postings)];
-map_postings([#posting_ext{docKey = DocKey, docPos = DocPos, fieldStart = FieldStart, fieldEnd = FieldEnd} | Postings]) ->
-	[{{docKey, DocKey}, {docPos, DocPos}, {fieldStart, FieldStart}, {fieldEnd, FieldEnd}} | map_postings(Postings)].
+map_postings([#posting{docKey = DocKey, docPos = DocPos, docVersion = DocVersion} | Postings]) ->
+	case lookup_doc_version(DocKey) of
+		{DocKey, DocVersion} ->
+			[{{docKey, DocKey}, {docPos, DocPos}} | map_postings(Postings)];
+		_ ->
+			map_postings(Postings)
+	end;
+
+map_postings([#posting_ext{docKey = DocKey, docPos = DocPos, fieldStart = FieldStart, fieldEnd = FieldEnd, docVersion = DocVersion} | Postings]) ->
+	case lookup_doc_version(DocKey) of
+		{DocKey, DocVersion} ->
+			[{{docKey, DocKey}, {docPos, DocPos}, {fieldStart, FieldStart}, {fieldEnd, FieldEnd}, {docVersion, DocVersion}} | map_postings(Postings)];
+		_ ->
+			map_postings(Postings)
+	end.
+
 
 bin_to_hashtable(<<>>) ->
 	[];
@@ -404,25 +426,36 @@ hash(Word) ->
 
 % Version Control
 
-start_table() ->
-	ets:new(doc_versions, [set, protected, named_table]).
+start_table(DbName) ->
+	ets:new(doc_versions, [set, protected, named_table]),
+	{ok, Fp} = file:open(DbName++"Versions.adb", [read, write, binary]),
+	initialize_table(Fp).
+
+initialize_table(Fp) ->
+	{ok, Position} = file:position(Fp, cur),
+	case file:read(Fp, ?SizeOfDocKey+?SizeOfVersion) of
+		{ok, <<DocKey:?SizeOfDocKey/unit:8, DocVersion:?SizeOfVersion/unit:8>>} ->
+			ets:insert(doc_versions, {DocKey, DocVersion, Position})
+	end.
 
 append_doc_version(DocKey, DocVersion, Fp) ->
-	{ok, _} = file:position(Fp, eof),
-	file:write(Fp, <<DocKey:?SizeOfDocKey/unit:8, DocVersion:?SizeOfVersion/unit:8>>).
+	{ok, Pointer} = file:position(Fp, eof),
+	file:write(Fp, <<DocKey:?SizeOfDocKey/unit:8, DocVersion:?SizeOfVersion/unit:8>>),
+	Pointer.
 
 insert_doc_version(DocKey, DocVersion, Pointer, Fp) ->
 	{ok, _} = file:position(Fp, {bof, Pointer}),
 	file:write(Fp, <<DocKey:?SizeOfDocKey/unit:8, DocVersion:?SizeOfVersion/unit:8>>).
 
 add_doc_version(DocKey, DocVersion, DbName) ->
-	{ok, Fp} = file:open(DbName++"Versions.adb", [read, write, binary, exclusive]),
+	{ok, Fp} = file:open(DbName++"Versions.adb", [read, write, binary]),
 	case ets:lookup(doc_versions, DocKey) of
 		[] ->
 			Pointer = append_doc_version(DocKey, DocVersion, Fp);
 		[{DocKey, _, Pointer}] ->
 			insert_doc_version(DocKey, DocVersion, Pointer, Fp)
 	end,
+	file:close(Fp),
 	ets:insert(doc_versions, {DocKey, DocVersion, Pointer}).
 
 lookup_doc_version(DocKey) ->
