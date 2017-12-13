@@ -474,3 +474,48 @@ lookup_doc_version(DocKey) ->
 		[{DocKey, Version, _}] ->
 			{DocKey, Version}
 	end.
+
+%Deletion
+
+start_deletion_table() ->
+	ets:new(doc_deletions, [set, protected, named_table]),
+	{ok, Fp} = file:open(DbName++"Deletions.adb", [read, write, binary]),
+	initialize_deletion_table(Fp).
+
+initialize_deletion_table(Fp) ->
+	{ok, Position} = file:position(Fp, cur),
+	case file:read(Fp, ?SizeOfDocKey) of
+		{ok, <<DocKey:?SizeOfDocKey/unit:8>>} ->
+			ets:insert(doc_deletions, {DocKey, Position});
+			initialize_deletion_table(Fp);
+		eof ->
+			ok
+	end.
+
+append_deleted_doc(DocKey, Fp) ->
+	{ok, Pointer} = file:position(Fp, eof),
+	file:write(Fp, <<DocKey:?SizeOfDocKey/unit:8>>),
+	Pointer.
+
+insert_deleted_doc(DocKey, Pointer, Fp) ->
+	{ok, _} = file:position(Fp, {bof, Pointer}),
+	file:write(Fp, <<DocKey:?SizeOfDocKey/unit:8>>).
+
+add_deleted_doc(DocKey, DbName) ->
+	{ok, Fp} = file:open(DbName++"Deletions.adb", [read, write, binary]),
+	case ets:lookup(doc_deletions, DocKey) of
+		[] ->
+			Pointer = append_deleted_doc(DocKey, Fp);
+		[{DocKey, Pointer}] ->
+			insert_deleted_doc(DocKey, Pointer, Fp)
+	end,
+	file:close(Fp),
+	ets:insert(doc_deletions, {DocKey, Pointer}).
+
+lookup_deleted_doc(DocKey) ->
+	case ets:lookup(doc_deletions, DocKey) of
+		[] ->
+			not_found;
+		[{DocKey, _}] ->
+			{DocKey}
+	end.
