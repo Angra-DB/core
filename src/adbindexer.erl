@@ -434,7 +434,7 @@ hash(Word) ->
 
 start_table(DbName) ->
 	ets:new(doc_versions, [set, protected, named_table]),
-	{ok, Fp} = file:open(DbName++"Versions.adb", [read, write, binary]),
+	{ok, Fp} = file:open(DbName++"Versions.adbi", [read, write, binary]),
 	initialize_table(Fp).
 
 initialize_table(Fp) ->
