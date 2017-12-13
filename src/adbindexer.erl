@@ -39,9 +39,9 @@ insert_token(Word, Posting, Index) ->
 		not_found ->
 			case Posting of
 				#posting{} ->
-					insert_term(Index, #term{word = Word, normalPostings = 1, extPostings = 0, postings = [Posting]});
+					insert_term(Index, #term{word = Word, normalPostings = 1, extPostings = 0, postings = [Posting], nextTerm = 0});
 				#posting_ext{} ->
-					insert_term(Index, #term{word = Word, normalPostings = 0 , extPostings = 1, postings = [Posting]})
+					insert_term(Index, #term{word = Word, normalPostings = 0 , extPostings = 1, postings = [Posting], nextTerm = 0})
 			end;
 		Term ->
 			NewTerm = insert_posting(Term, Posting),
@@ -95,6 +95,11 @@ extract_key_from_record(#posting_ext{docKey = DocKey}) ->
 	DocKey;
 extract_key_from_record(#posting{docKey = DocKey}) ->
 	DocKey.
+
+extract_version_from_record(#posting_ext{docVersion = DocVersion}) ->
+	DocVersion;
+extract_version_from_record(#posting{docVersion = DocVersion}) ->
+	DocVersion.
 
 update_term([], _NewTerm) ->
 	[];
@@ -249,15 +254,19 @@ postings_to_bin([], Counters) ->
 
 postings_to_bin([Posting | Postings], Counters) ->
 	DocKey = extract_key_from_record(Posting),
-	{DocKey, CurrentVersion} = lookup_doc_version(DocKey),
-	case {Posting, CurrentVersion} of
-		{#posting{docKey = DocKey, docPos = DocPos, docVersion = DocVersion}, DocVersion} ->
-			{PostingsBin, UpdatedCounters} = postings_to_bin(Postings, Counters),
-			{<<?Normal:1/unit:8, DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, DocVersion:?SizeOfVersion/unit:8, PostingsBin/binary>>, UpdatedCounters};
-		{#posting_ext{docKey = DocKey, docPos = DocPos, docVersion = DocVersion, fieldStart = FieldStart, fieldEnd = FieldEnd}, DocVersion} ->
-			{PostingsBin, UpdatedCounters} = postings_to_bin(Postings, Counters),
-			{<<?Extended:1/unit:8, DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, DocVersion:?SizeOfVersion/unit:8, FieldStart:?SizeOfDocPos/unit:8, FieldEnd:?SizeOfDocPos/unit:8, PostingsBin/binary>>, UpdatedCounters};
-		_ ->
+	DocVersion = extract_version_from_record(Posting),
+	Result = lookup_doc_version(DocKey),
+	if
+		Result =:= {DocKey, DocVersion}; Result =:= not_found ->
+			case Posting of
+				#posting{docKey = DocKey, docPos = DocPos, docVersion = DocVersion} ->
+					{PostingsBin, UpdatedCounters} = postings_to_bin(Postings, Counters),
+					{<<?Normal:1/unit:8, DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, DocVersion:?SizeOfVersion/unit:8, PostingsBin/binary>>, UpdatedCounters};
+				#posting_ext{docKey = DocKey, docPos = DocPos, docVersion = DocVersion, fieldStart = FieldStart, fieldEnd = FieldEnd} ->
+					{PostingsBin, UpdatedCounters} = postings_to_bin(Postings, Counters),
+					{<<?Extended:1/unit:8, DocKey:?SizeOfDocKey/unit:8, DocPos:?SizeOfDocPos/unit:8, DocVersion:?SizeOfVersion/unit:8, FieldStart:?SizeOfDocPos/unit:8, FieldEnd:?SizeOfDocPos/unit:8, PostingsBin/binary>>, UpdatedCounters}
+			end;
+		true ->
 			{PostingsBin, UpdatedCounters} = postings_to_bin(Postings, Counters),
 			{PostingsBin, update_counters(Posting, UpdatedCounters, decrease)}
 	end.
@@ -266,7 +275,6 @@ bin_to_postings(<<>>, Counters) ->
 	{[], Counters};
 
 bin_to_postings(PostingsBin, Counters) ->
-	io:format("postingsBin = ~w~n", [PostingsBin]),
 	<<Type:1/unit:8, PostingBin/binary>> = PostingsBin,
 	case Type of
 		?Normal ->
@@ -314,16 +322,17 @@ merge_postings([P1 | DocPostings], [P2 | MemPostings], DocCounters, MemCounters)
 	DocPostingKey = extract_key_from_record(P1),
 	case DocPostingKey < MemPostingKey of
 		true ->
-			 DecreasedDocCounters = update_counters(P1, DocCounters, decrease),
-			 {NewPostings, Counters} = merge_postings(DocPostings, [P2 | MemPostings], DecreasedDocCounters, MemCounters),
-			 UpdatedCounters = update_counters(P1, Counters),
-			 {[P1 | NewPostings], UpdatedCounters};
+			DecreasedDocCounters = update_counters(P1, DocCounters, decrease),
+			{NewPostings, Counters} = merge_postings(DocPostings, [P2 | MemPostings], DecreasedDocCounters, MemCounters),
+			UpdatedCounters = update_counters(P1, Counters),
+			{[P1 | NewPostings], UpdatedCounters};
 		false when DocPostingKey > MemPostingKey ->
 			DecreasedMemCounters = update_counters(P2, MemCounters, decrease),
 			{NewPostings, Counters} = merge_postings([P1 | DocPostings], MemPostings, DocCounters, DecreasedMemCounters),
 			UpdatedCounters = update_counters(P2, Counters),
 			{[P2 | NewPostings], UpdatedCounters};
 		false ->
+			io:format("DocKey ~w~nMemKey ~w~n", [DocPostingKey, MemPostingKey]),
 			{SkippedList, SkippedCounters} = skip_list(DocPostings, DocPostingKey),
 			DecreasedDocCounters = update_counters(DocCounters, SkippedCounters, decrease),
 			DecreasedMemCounters = update_counters(P2, MemCounters, decrease),
@@ -353,12 +362,12 @@ find(Word, Index, DBName, HashFunction) ->
 	MemTerm =
 		case find_term(Index, Word) of
 			not_found ->
-				#term{postings = []};
+				#term{postings = [], word=Word, normalPostings=0, extPostings=0, nextTerm=0};
 			Term ->
 				Term
 		end,
 	DocTerm = find_doc_term(Fp, HashFunction, Word),
-	{Postings, _} = merge_postings(DocTerm#term.postings, MemTerm#term.postings, {DocTerm#term.normalPostings, DocTerm#term.normalPostings}, {MemTerm#term.normalPostings, MemTerm#term.normalPostings}),
+	{Postings, _} = merge_postings(DocTerm#term.postings, MemTerm#term.postings, {DocTerm#term.normalPostings, DocTerm#term.normalPostings}, {MemTerm#term.normalPostings, MemTerm#term.extPostings}),
 	map_postings(Postings).
 
 find_doc_term(Fp, HashFunction, Word) ->
@@ -372,8 +381,6 @@ find_doc_term(Fp, HashFunction, Word) ->
 		eof ->
 			#term{postings=[], normalPostings=0, extPostings=0}
 	end.
-
-
 
 find_term(_Fp, 0, _Word) ->
 	#term{postings=[], normalPostings=0, extPostings=0};
@@ -398,7 +405,7 @@ map_postings([]) ->
 map_postings([#posting{docKey = DocKey, docPos = DocPos, docVersion = DocVersion} | Postings]) ->
 	case lookup_doc_version(DocKey) of
 		{DocKey, DocVersion} ->
-			[{{docKey, DocKey}, {docPos, DocPos}} | map_postings(Postings)];
+			[{{docKey, DocKey}, {docPos, DocPos}, {docVersion, DocVersion}} | map_postings(Postings)];
 		_ ->
 			map_postings(Postings)
 	end;
@@ -410,7 +417,6 @@ map_postings([#posting_ext{docKey = DocKey, docPos = DocPos, fieldStart = FieldS
 		_ ->
 			map_postings(Postings)
 	end.
-
 
 bin_to_hashtable(<<>>) ->
 	[];
@@ -435,7 +441,10 @@ initialize_table(Fp) ->
 	{ok, Position} = file:position(Fp, cur),
 	case file:read(Fp, ?SizeOfDocKey+?SizeOfVersion) of
 		{ok, <<DocKey:?SizeOfDocKey/unit:8, DocVersion:?SizeOfVersion/unit:8>>} ->
-			ets:insert(doc_versions, {DocKey, DocVersion, Position})
+			ets:insert(doc_versions, {DocKey, DocVersion, Position}),
+			initialize_table(Fp);
+		eof ->
+			ok
 	end.
 
 append_doc_version(DocKey, DocVersion, Fp) ->

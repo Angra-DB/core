@@ -2,8 +2,8 @@
 -define(HashSize, 10000).
 -define(SizeOfDocPos, 8).
 -define(SizeOfDocKey, 14).
--define(SizeOfPosting, 22).
--define(SizeOfExtPosting, 38).
+-define(SizeOfPosting, 28).
+-define(SizeOfExtPosting, 44).
 -define(SizeOfCount, 8).
 -define(SizeOfWord, 60).
 -define(SizeOfHeader, 5).
