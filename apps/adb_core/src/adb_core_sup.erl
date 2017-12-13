@@ -19,14 +19,14 @@
 
 -define(SERVER, ?MODULE).
 
-start_link(Server) ->
-    supervisor:start_link({local, ?SERVER}, ?MODULE, [Server]).
+start_link(State) ->
+    supervisor:start_link({local, ?SERVER}, ?MODULE, [State]).
 
 start_child() ->
     supervisor:start_child(?SERVER, []).
 
-init([Server]) ->
-    Core = {adb_core, {adb_core, start_link, [Server]}, % {Id, Start, Restart, ...}
+init(Args) ->
+    Core = {adb_core_server, {adb_core, start_link, Args}, % {Id, Start, Restart, ...}
                 temporary, brutal_kill, worker, [adb_core]},
     RestartStrategy = {simple_one_for_one, 1000, 3600}, % {How, Max, Within} ... Max restarts within a period
     {ok, {RestartStrategy, [Core]}}.

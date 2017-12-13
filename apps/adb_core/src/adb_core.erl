@@ -11,22 +11,19 @@
 -behavior(gen_server).
 
 %% API functions
--export([start_link/1, get_count/0, stop/0, process_request/1]).
+-export([start_link/1, get_count/0, stop/0, receive_request/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -define(SERVER, ?MODULE). % declares a SERVER macro constant (?MODULE is the module's name)
 
--record(state, {persistence}). % a record for keeping the server state
-
 %%=============================================================================
 %% API functions
 %%=============================================================================
 
-start_link(Host) ->
-    {ok, Persistence} = get_persistence_from_server(Host),
-    gen_server:start_link(?SERVER, [Persistence], []).
+start_link(State) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [State], []).
 
 get_count() ->
     gen_server:call(?SERVER, get_count).
@@ -34,16 +31,19 @@ get_count() ->
 stop() ->
     gen_server:cast(?SERVER, stop).
 
-process_request(Args)->
-    gen_server:call(?SERVER, process_request, Args).
+receive_request(Args) ->
+    gen_server:call(?SERVER, {process_request, Args}).
 
 %%=============================================================================
 %% gen_server callbacks
 %%=============================================================================
 
-init([Persistence]) ->
-    {ok, #state{persistence = Persistence}, 0}.
+init([State]) ->
+    {ok, State, 0}.
 
+handle_call({process_request, Args}, _From, State) -> 
+    Res = process_request(Args),
+    {reply, {ok, Res}, State};
 handle_call(Msg, _From, State) ->
     {reply, {ok, Msg}, State}.
 
@@ -64,10 +64,5 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%==============================================================================
 
-get_persistence_from_server(Host) ->
-    case rpc:call(Host, adb_server, inform_persistence, []) of
-        {badrpc, _Reason} -> lager:warning("Persistence not found. Assuming standard persistence."),
-                             adbtree_persistence;
-        Response          -> lager:info("Persistence acknowledged: ~p.", [Response]),
-                             Response
-    end.
+process_request([Command, Database, Arg, Persistence]) ->
+    gen_persistence:process_request(Command, Database, Arg, Persistence).

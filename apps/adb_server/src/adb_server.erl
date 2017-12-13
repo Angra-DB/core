@@ -19,8 +19,7 @@
 
 -export([ start_link/2
 	, get_count/0   % we can understand both get_count and stop as adm operations
-    , stop/0
-    , inform_persistence/0]).
+    , stop/0]).
 
 % gen_server callbacks
 -export([ init/1
@@ -55,13 +54,6 @@ get_count() ->
 
 stop() ->
     gen_server:cast(?SERVER, stop).
-
-inform_persistence() ->
-    case #state.persistence of
-        hanoidb -> hanoidb_persistence;		
-        ets     -> ets_persistence;
-        _       -> adbtree_persistence
-    end.
 
 %%%===========================================
 %%% gen_server callbacks
@@ -169,9 +161,10 @@ split(Str) ->
     {Command, string:strip(Args)}.
 
 
-% forward(process_request, Args) when node() == nonode@nohost ->
-%     Res = gen_server:call({global, adb_core}, {process_request, Args})
-% forward(Method, Args) when nodes() =/= [] ->
-%     case rpc:multicall()
-forward(_, _) ->
-    no_core_node_found.
+forward(process_request, Args) when node() == nonode@nohost ->
+    gen_server:call(adb_core, {process_request, Args});
+forward(process_request, Args) ->
+    case nodes() of
+        [] -> no_core_node_found;
+        _  -> rpc:multicall(nodes(), adb_core, receive_request, Args)
+    end.
