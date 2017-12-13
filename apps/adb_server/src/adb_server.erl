@@ -162,9 +162,9 @@ split(Str) ->
 
 
 forward(process_request, Args) when node() == nonode@nohost ->
-    gen_server:call(adb_core, {process_request, Args});
+    gen_server:call({global, adb_core}, {process_request, Args});
 forward(process_request, Args) ->
     case nodes() of
         [] -> no_core_node_found;
-        _  -> rpc:multicall(nodes(), adb_core, receive_request, Args)
+        _  -> gen_server:multi_call(nodes(), {global, adb_core}, receive_request, Args)
     end.

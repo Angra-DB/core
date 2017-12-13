@@ -23,16 +23,16 @@
 %%=============================================================================
 
 start_link(State) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [State], []).
+    gen_server:start_link({global, ?SERVER}, ?MODULE, [State], []).
 
 get_count() ->
-    gen_server:call(?SERVER, get_count).
+    gen_server:call({global, ?SERVER}, get_count).
 
 stop() ->
-    gen_server:cast(?SERVER, stop).
+    gen_server:cast({global, ?SERVER}, stop).
 
 receive_request(Args) ->
-    gen_server:call(?SERVER, {process_request, Args}).
+    gen_server:call({global, ?SERVER}, {process_request, Args}).
 
 %%=============================================================================
 %% gen_server callbacks
