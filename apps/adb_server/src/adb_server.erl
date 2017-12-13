@@ -122,7 +122,10 @@ evaluate_request(Socket, State, Tokens) ->
 %
 connect(Socket, State, Database) ->
     Persistence = State#state.persistence,
-    Res = forward(process_request, [connect, Database, Database, Persistence]),
+    Res = case forward(process_request, [connect, Database, Database, Persistence]) of
+        [First|_] -> First;
+        One       -> One
+    end,
     case Res of
         db_does_not_exist -> gen_tcp:send(Socket, io_lib:fwrite("Database ~p does not exist~n", [Database])),
                              State;
@@ -162,9 +165,18 @@ split(Str) ->
 
 
 forward(process_request, Args) when node() == nonode@nohost ->
-    gen_server:call({global, adb_core}, {process_request, Args});
+    case gen_server:call(adb_core, {process_request, Args}) of
+        {ok, _Res} -> ok;
+        Res        -> Res
+    end;
 forward(process_request, Args) ->
     case nodes() of
         [] -> no_core_node_found;
-        _  -> gen_server:multi_call(nodes(), {global, adb_core}, receive_request, Args)
+        _  -> rpc_multicall(nodes(), adb_core, receive_request, [Args])
     end.
+
+rpc_multicall([], _, _, _) ->
+    [];
+rpc_multicall([Node|Tail], Module, Func, Args) ->
+    Result = rpc:call(Node, Module, Func, Args),
+    lists:append([Result], rpc_multicall(Tail, Module, Func, Args)).

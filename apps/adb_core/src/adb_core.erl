@@ -23,16 +23,20 @@
 %%=============================================================================
 
 start_link(State) ->
-    gen_server:start_link({global, ?SERVER}, ?MODULE, [State], []).
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [State], []).
 
 get_count() ->
-    gen_server:call({global, ?SERVER}, get_count).
+    gen_server:call(?SERVER, get_count).
 
 stop() ->
-    gen_server:cast({global, ?SERVER}, stop).
+    gen_server:cast(?SERVER, stop).
 
 receive_request(Args) ->
-    gen_server:call({global, ?SERVER}, {process_request, Args}).
+    Response = case gen_server:call(?SERVER, {process_request, Args}) of
+        {ok, _Res} -> ok;
+        Res        -> Res
+    end,
+    Response.
 
 %%=============================================================================
 %% gen_server callbacks
@@ -43,7 +47,7 @@ init([State]) ->
 
 handle_call({process_request, Args}, _From, State) -> 
     Res = process_request(Args),
-    {reply, {ok, Res}, State};
+    {reply, Res, State};
 handle_call(Msg, _From, State) ->
     {reply, {ok, Msg}, State}.
 
