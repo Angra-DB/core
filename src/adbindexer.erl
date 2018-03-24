@@ -477,7 +477,7 @@ lookup_doc_version(DocKey) ->
 
 %Deletion
 
-start_deletion_table() ->
+start_deletion_table(DbName) ->
 	ets:new(doc_deletions, [set, protected, named_table]),
 	{ok, Fp} = file:open(DbName++"Deletions.adb", [read, write, binary]),
 	initialize_deletion_table(Fp).
@@ -486,7 +486,7 @@ initialize_deletion_table(Fp) ->
 	{ok, Position} = file:position(Fp, cur),
 	case file:read(Fp, ?SizeOfDocKey) of
 		{ok, <<DocKey:?SizeOfDocKey/unit:8>>} ->
-			ets:insert(doc_deletions, {DocKey, Position});
+			ets:insert(doc_deletions, {DocKey, Position}),
 			initialize_deletion_table(Fp);
 		eof ->
 			ok
