@@ -1,9 +1,9 @@
 % ------------------------------------------------
-% @author Rodrigo Bonifacio <rbonifacio@unb.br> 
+% @author Rodrigo Bonifacio <rbonifacio@unb.br>
 %
 % @doc a first attempt to build the Angra-DB server
 %
-% @end 
+% @end
 % ------------------------------------------------
 
 
@@ -13,7 +13,7 @@
 
 -behavior(gen_server).
 
-% 
+%
 % API functions
 %
 
@@ -33,27 +33,27 @@
 -export([split/1]).
 
 
--define(SERVER, ?MODULE).      % declares a SERVER macro constant (?MODULE is the module's name) 
+-define(SERVER, ?MODULE).      % declares a SERVER macro constant (?MODULE is the module's name)
 
 -record(state, {lsock, persistence, parent, current_db = none}). % a record for keeping the server state
 
 %%%======================================================
 %%% API
 %%%
-%%% Each one of the functions that appear in the 
-%%% API section, calls one of the gen_server library 
-%%% functions (start_link/4, call/2, cast/2)... This 
-%%% is a bit trick. 
+%%% Each one of the functions that appear in the
+%%% API section, calls one of the gen_server library
+%%% functions (start_link/4, call/2, cast/2)... This
+%%% is a bit trick.
 %%%======================================================
 
 start_link(LSock, Persistence) ->
     gen_server:start_link(?MODULE, [LSock, Persistence], []).
-			  
+
 get_count() ->
     gen_server:call(?SERVER, get_count).
 
 stop() ->
-    gen_server:cast(?SERVER, stop). 
+    gen_server:cast(?SERVER, stop).
 
 %%%===========================================
 %%% gen_server callbacks
@@ -63,12 +63,12 @@ init([LSock, Persistence]) ->
     {ok, #state{lsock = LSock, persistence = Persistence}, 0}.
 
 handle_call(Msg, _From, State) ->
-    {reply, {ok, Msg}, State}. 
+    {reply, {ok, Msg}, State}.
 
 handle_cast(stop, State) ->
     {stop, normal, State}.
 
-handle_info({tcp, Socket, RawData}, State) -> 
+handle_info({tcp, Socket, RawData}, State) ->
     NewState = process_request(Socket, State, RawData),
     {noreply, NewState};
 
@@ -78,16 +78,16 @@ handle_info({tcp_closed, _Socket}, State) ->
 handle_info(timeout, #state{lsock = LSock} = State) ->
     {ok, Sock} = gen_tcp:accept(LSock),
     adb_sup:start_child(),
-    {noreply, State#state{ lsock = Sock }}. 
+    {noreply, State#state{ lsock = Sock }}.
 
 terminate(_Reason, _State) ->
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
-    {ok, State}. 
+    {ok, State}.
 
-%%% ========================================================== 
-% process the TCP requests. here, we accept the following 
+%%% ==========================================================
+% process the TCP requests. here, we accept the following
 % commands:
 %
 %   create_db <DBName>
@@ -95,21 +95,22 @@ code_change(_OldVsn, State, _Extra) ->
 %   connect <DBName>
 %
 %   save <Document>
-%   lookup <Id> 
+%   save_key <given_Id> <document>
+%   lookup <Id>
 %   update <Id> <Document>
-%   delete <Id> 
+%   delete <Id>
 %%% =========================================================
 process_request(Socket, State, RawData) ->
-    try 
+    try
       Tokens = preprocess(RawData),
       evaluate_request(Socket, State, Tokens)
     catch
-      _Class:Err -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Err]))	
+      _Class:Err -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Err]))
     end.
 
 evaluate_request(Socket, State, Tokens) ->
     case Tokens of
-        {"connect", Database} -> 
+        {"connect", Database} ->
             connect(Socket, State, Database);
         {"create_db", Database} ->
             persist(Socket, State#state.persistence, Database, Tokens),
@@ -120,12 +121,12 @@ evaluate_request(Socket, State, Tokens) ->
     end.
 
 %
-% connects to an existing database. 
-% 
+% connects to an existing database.
+%
 connect(Socket, State, Database) ->
     Persistence = State#state.persistence,
     Res = gen_persistence:process_request(connect, Database, Database, Persistence),
-    case Res of 
+    case Res of
         db_does_not_exist ->
             gen_tcp:send(Socket, io_lib:fwrite("Database ~p does not exist~n", [Database])),
 	    State;
@@ -133,8 +134,8 @@ connect(Socket, State, Database) ->
             NewState = State#state{ current_db = list_to_atom(Database) },
             gen_tcp:send(Socket, io_lib:fwrite("Database set to ~p...~n", [Database])),
             NewState
-    end.    
-    
+    end.
+
 
 persist(Socket, _, none, _) ->
     gen_tcp:send(Socket, io_lib:fwrite("Database not set. Please use the 'use' command.~n", []));
@@ -144,7 +145,7 @@ persist(Socket, Persistence, CurrentDB, {Command, Args}) ->
     case Res of
         _Response ->
             gen_tcp:send(Socket, io_lib:fwrite("~p~n", [_Response]))
-    end.    
+    end.
 
 preprocess(RawData) ->
     _reverse = lists:reverse(RawData),
@@ -154,11 +155,12 @@ preprocess(RawData) ->
     case filter_command(Command) of
       []         -> throw(invalid_command);
       ["update"] -> {Command, split(Args)};
+			["save_key"] -> {Command, split(Args)};
       _          -> {Command, Args}
     end.
 
 filter_command(Command) ->
-    ValidCommands = ["save", "lookup", "update", "delete", "connect", "create_db", "delete_db"],
+    ValidCommands = ["save", "save_key", "lookup", "update", "delete", "connect", "create_db", "delete_db"],
     [X || X <- ValidCommands, X =:= Command].
 
 split(Str) ->
