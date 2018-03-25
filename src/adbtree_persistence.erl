@@ -4,40 +4,38 @@
 
 -export([setup/1, teardown/1, createDB/1, connect/1, save/3, lookup/2, update/3, delete/2]).
 
-setup([DBName]) ->
-    {ok, Tree} = adbtree:start(DBName),
+setup([DbName]) ->
+    {ok, Tree} = adbtree:start(DbName),
     Tree.
 
-connect(DB) ->
-    case adbtree:connect(DB) of
-        {ok, Tree} ->
-            ok;
-        {error, enoent} ->
-            db_does_not_exist
-    end. 
+connect(DbName) ->
+    persist_sup:spawn_if_exists(DbName).
 
-createDB(DB) ->
-    adbtree:create_db(DB). 
+createDB(DbName) ->
+    {ok, _} = persist_sup:start_child(DbName),
+    writer:create_db(DbName).
 
-teardown(Tree) ->
-    adbtree:close(Tree).
+teardown(_) ->
+    ok.
 
-save(Tree, Key, Value) ->
-    {ok, NewKey} = adbtree:save(atom_to_list(Tree), list_to_binary(Value), list_to_integer(Key, 16)),
+save(DbName, Key, Value) ->
+    {ok, {key, NewKey}, {ver, _Version}} = writer:save(atom_to_list(DbName), list_to_binary(Value), list_to_integer(Key, 16)),
     integer_to_list(NewKey, 16).
 
-lookup(Tree, Key) ->
-  try
-    {ok, _Version, Doc} = adbtree:lookup(atom_to_list(Tree), list_to_integer(Key, 16)),
-    binary_to_list(Doc)
-  catch
-    _Class:_Err -> not_found	
-  end.
+lookup(DbName, Key) ->
+    {ok, Pid} = reader_sup:start_child(atom_to_list(DbName)),
+    case reader:lookup(Pid, list_to_integer(Key, 16)) of
+        {ok, _Version, Doc} ->
+            {ok, Doc};
+        Response ->
+            Response
+    end.
 
-delete(Tree, Key) ->
-    adbtree:delete(atom_to_list(Tree), list_to_integer(Key, 16)).
 
-update(Tree, Key, Value) ->
-    adbtree:update(atom_to_list(Tree), list_to_binary(Value), list_to_integer(Key, 16)),
-    ok.
+
+delete(DbName, Key) ->
+    writer:delete(atom_to_list(DbName), list_to_integer(Key, 16)).
+
+update(DbName, Key, Value) ->
+    writer:update(atom_to_list(DbName), list_to_binary(Value), list_to_integer(Key, 16)).
 

@@ -97,12 +97,23 @@ delete(DBName, Key) ->
 	btree_delete(Key, DBName).
 
 connect(DBName) ->
-	case Fp = file:open(DBName++"Index.adb", [read]) of
+	case file:open(DBName++"Index.adb", [read]) of
 		T = {error, enoent} ->
 			T;
-		{ok, _} ->
+		{ok, Fp} ->
 			file:close(Fp),
 			{ok, DBName};
+		Error ->
+			{error, Error}
+	end.
+
+exists(DBName) ->
+	case file:open(DBName++"Index.adb", [read]) of
+		{error, enoent} ->
+			false;
+		{ok, Fp} ->
+			file:close(Fp),
+			true;
 		Error ->
 			{error, Error}
 	end.

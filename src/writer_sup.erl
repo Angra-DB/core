@@ -4,15 +4,15 @@
 %%% @doc
 %%%
 %%% @end
-%%% Created : 25. mar 2018 03:34
+%%% Created : 25. mar 2018 02:08
 %%%-------------------------------------------------------------------
--module(adb_sup).
+-module(writer_sup).
 -author("ftfnunes").
 
 -behaviour(supervisor).
 
 %% API
--export([start_link/2]).
+-export([start_link/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -29,8 +29,8 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
-start_link(LSock, Args) ->
-  supervisor:start_link({local, ?SERVER}, ?MODULE, [LSock, Args]).
+start_link(DbName) ->
+  supervisor:start_link({local, list_to_atom(DbName++"_writer_sup")}, ?MODULE, [DbName]).
 
 %%%===================================================================
 %%% Supervisor callbacks
@@ -46,7 +46,7 @@ start_link(LSock, Args) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
-init([LSock, Args]) ->
+init([DbName]) ->
   RestartStrategy = one_for_one,
   MaxRestarts = 1000,
   MaxSecondsBetweenRestarts = 3600,
@@ -57,12 +57,10 @@ init([LSock, Args]) ->
   Shutdown = 2000,
   Type = worker,
 
-  ServerSup = {server_sup, {server_sup, start_link, [LSock, Args]},
-    Restart, Shutdown, Type, [server_sup]},
-  PersistSup = {persist_sup, {persist_sup, start_link, []},
-    Restart, Shutdown, Type, [persist_sup]},
+  WriterWorker = {DbName++"writer", {writer, start_link, [DbName]},
+    Restart, Shutdown, Type, [writer]},
 
-  {ok, {SupFlags, [ServerSup, PersistSup]}}.
+  {ok, {SupFlags, [WriterWorker]}}.
 
 %%%===================================================================
 %%% Internal functions
