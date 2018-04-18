@@ -1,16 +1,18 @@
-FROM buildpack-deps:jessie
+FROM buildpack-deps:stretch
 
-ENV OTP_VERSION="18.3.4.8"
+ENV OTP_VERSION="20.3.1"
 
 # We'll install the build dependencies for erlang-odbc along with the erlang
 # build process:
 RUN set -xe \
 	&& OTP_DOWNLOAD_URL="https://github.com/erlang/otp/archive/OTP-${OTP_VERSION}.tar.gz" \
-	&& OTP_DOWNLOAD_SHA256="26df069142401924dc10d37f994a5de5ed971824880c5e5cce041b1e82c9250d" \
+	&& OTP_DOWNLOAD_SHA256="8b8a75dc370799600e74bb0368ad69c528a03b505e088c9d2c55b34bf861dde6" \
 	&& runtimeDeps='libodbc1 \
-			libsctp1' \
+			libsctp1 \
+			libwxgtk3.0' \
 	&& buildDeps='unixodbc-dev \
-			libsctp-dev' \
+			libsctp-dev \
+			libwxgtk3.0-dev' \
 	&& apt-get update \
 	&& apt-get install -y --no-install-recommends $runtimeDeps \
 	&& apt-get install -y --no-install-recommends $buildDeps \
@@ -30,7 +32,7 @@ RUN set -xe \
 	&& apt-get purge -y --auto-remove $buildDeps \
 	&& rm -rf $ERL_TOP /var/lib/apt/lists/*
 
-CMD ["erl"]
+# CMD ["erl"]
 
 # extra useful tools here: rebar & rebar3
 
@@ -63,3 +65,15 @@ RUN set -xe \
 	&& HOME=$PWD ./bootstrap \
 	&& install -v ./rebar3 /usr/local/bin/ \
 	&& rm -rf /usr/src/rebar3-src
+
+# Set the working directory to /app
+WORKDIR /app
+
+# Copy the current directory contents into the container at /app
+ADD . /app
+
+# Initialize EPMD
+RUN epmd -daemon
+
+# Make port 80 evailable to the world outside this container
+EXPOSE 1234
