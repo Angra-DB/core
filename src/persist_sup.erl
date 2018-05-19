@@ -13,8 +13,8 @@
 
 %% API
 -export([start_link/0]).
--export([spawn_if_exists/1]).
--export([start_child/1]).
+-export([spawn_if_exists/2]).
+-export([start_child/2]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -25,10 +25,10 @@
 %%% API functions
 %%%===================================================================
 
-spawn_if_exists(DbName) ->
+spawn_if_exists(DbName, Args) ->
   case adbtree:exists(DbName) of
     true ->
-      case supervisor:start_child(?SERVER, children_spec(DbName)) of
+      case supervisor:start_child(?SERVER, children_spec(DbName, Args)) of
         {error, already_present} -> ok;
         {error, {already_started, _}} -> ok;
         {ok, _} -> ok;
@@ -39,15 +39,15 @@ spawn_if_exists(DbName) ->
       db_does_not_exist
   end.
 
-start_child(DbName) ->
-  supervisor:start_child(?SERVER, children_spec(DbName)).
+start_child(DbName, Args) ->
+  supervisor:start_child(?SERVER, children_spec(DbName, Args)).
 
-children_spec(DbName) ->
+children_spec(DbName, Args) ->
   Restart = permanent,
   Shutdown = 2000,
   Type = supervisor,
 
-  {DbName, {database_sup, start_link, [DbName]},
+  {DbName, {database_sup, start_link, [DbName, Args]},
     Restart, Shutdown, Type, [database_sup]}.
 
 %%--------------------------------------------------------------------

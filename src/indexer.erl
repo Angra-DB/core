@@ -4,20 +4,16 @@
 %%% @doc
 %%%
 %%% @end
-%%% Created : 25. mar 2018 02:23
+%%% Created : 17. mai 2018 21:29
 %%%-------------------------------------------------------------------
--module(writer).
+-module(indexer).
 -author("ftfnunes").
 
 -behaviour(gen_server).
 
 %% API
--export([start_link/1,
-  create_db/1,
-  connect/1,
-  save/3,
-  update/3,
-  delete/2]).
+-export([start_link/1]).
+-export([start_link/2]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -29,22 +25,11 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {db_name}).
+-record(state, {db_name, index, index_max_size}).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
-
-create_db(DbName) ->
-  gen_server:call(format_name(DbName), {create_db}).
-connect(DbName) ->
-  gen_server:call(format_name(DbName), {connect}).
-save(DbName, Value, Key) ->
-  gen_server:call(format_name(DbName), {save, {Value, Key}}).
-update(DbName, Value, Key) ->
-  gen_server:call(format_name(DbName), {update, {Value, Key}}).
-delete(DbName, Key) ->
-  gen_server:call(format_name(DbName), {delete, {Key}}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -53,7 +38,13 @@ delete(DbName, Key) ->
 %% @end
 %%--------------------------------------------------------------------
 start_link(DbName) ->
-  gen_server:start_link({local, format_name(DbName)}, ?MODULE, [DbName], []).
+  lager:info("Args in indexer", []),
+  start_link(DbName, []).
+
+start_link(DbName, Args) ->
+  IndexMaxSize = proplists:get_value(max_index_size, Args),
+  lager:info("Args in indexer ~p", [IndexMaxSize]),
+  gen_server:start_link({local, format_name(DbName)}, ?MODULE, [DbName, IndexMaxSize], []).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -70,8 +61,10 @@ start_link(DbName) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([DbName]) ->
-  {ok, #state{db_name = DbName}}.
+init([DbName, IndexMaxSize]) ->
+  adbindexer:start_table(DbName),
+  adbindexer:start_deletion_table(DbName),
+  {ok, #state{ db_name =  DbName, index = [], index_max_size = IndexMaxSize }}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -80,20 +73,21 @@ init([DbName]) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
-handle_call(Request, _From, State = #state {db_name = DbName}) ->
+handle_call(Request, _From, State = #state {db_name = DbName, index = Index}) ->
   case Request of
-    {create_db} ->
-      Reply = adbtree:create_db(DbName);
-    {connect} ->
-      Reply = adbtree:connect(DbName);
-    {save, {Value, Key}} ->
-      Reply = adbtree:save(DbName, Value, Key);
-    {update, {Value, Key}} ->
-      Reply = adbtree:update(DbName, Value, Key);
+    {save, {Value, Key, Version}} ->
+      { ok, Tokens } = token_parser:receive_json(Value),
+      AddedIndex = adbindexer:update_mem_index(Tokens, Key, Version, Index, DbName),
+      NewIndex = flush_if_full(AddedIndex);
+    {update, {Value, Key, Version}} ->
+      { ok, Tokens } = token_parser:receive_json(Value),
+      AddedIndex = adbindexer:update_mem_index(Tokens, Key, Version, Index, DbName),
+      NewIndex = flush_if_full(AddedIndex);
     {delete, {Key}} ->
-      Reply = adbtree:delete(DbName, Key)
+      adbindexer:add_deleted_doc(Key, DbName),
+      NewIndex = Index
   end,
-  {reply, Reply, State}.
+  {reply, ok, State#state{index = NewIndex}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -147,8 +141,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-format_name(DbName) ->
-  list_to_atom(DbName++"_writer").
 
-indexer_name(DbName) ->
-  list_to_atom(DbName++"_indexerW").
+format_name(DbName) ->
+  list_to_atom(DbName++"_indexer").
+
+flush_if_full(AddedIndex) ->
+  erlang:error(not_implemented).

@@ -2,17 +2,17 @@
 
 -behaviour(gen_persistence).
 
--export([setup/1, teardown/1, createDB/1, connect/1, save/3, lookup/2, update/3, delete/2]).
+-export([setup/1, teardown/1, createDB/2, connect/2, save/3, lookup/2, update/3, delete/2]).
 
 setup([DbName]) ->
     {ok, Tree} = adbtree:start(DbName),
     Tree.
 
-connect(DbName) ->
-    persist_sup:spawn_if_exists(DbName).
+connect(DbName, Args) ->
+    persist_sup:spawn_if_exists(DbName, Args).
 
-createDB(DbName) ->
-    {ok, _} = persist_sup:start_child(DbName),
+createDB(DbName, Args) ->
+    {ok, _} = persist_sup:start_child(DbName, Args),
     writer:create_db(DbName).
 
 teardown(_) ->
@@ -30,8 +30,6 @@ lookup(DbName, Key) ->
         Response ->
             Response
     end.
-
-
 
 delete(DbName, Key) ->
     writer:delete(atom_to_list(DbName), list_to_integer(Key, 16)).

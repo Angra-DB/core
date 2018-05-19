@@ -5,8 +5,8 @@
  {registered, [adb_sup]},
  {applications, [kernel, stdlib, lager]},
  {mod, {adb_app, 
-        % {persistence, ets | hanoidb | adbtree}
-        [{persistence, adbtree}]
+        % {persistence, {{name, ets | hanoidb | adbtree }, []}
+        [{persistence, {{name, adbtree}, [{max_index_size, 1000}]}}]
        }
  }
 ]}.

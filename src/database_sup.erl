@@ -12,7 +12,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/1]).
+-export([start_link/2]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -29,8 +29,8 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
-start_link(DbName) ->
-  supervisor:start_link({local, list_to_atom(DbName)}, ?MODULE, [DbName]).
+start_link(DbName, Args) ->
+  supervisor:start_link({local, list_to_atom(DbName)}, ?MODULE, [DbName, Args]).
 
 %%%===================================================================
 %%% Supervisor callbacks
@@ -46,7 +46,7 @@ start_link(DbName) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
-init([DbName]) ->
+init([DbName, Args]) ->
   RestartStrategy = one_for_one,
   MaxRestarts = 1000,
   MaxSecondsBetweenRestarts = 3600,
@@ -59,7 +59,7 @@ init([DbName]) ->
 
   ReaderChild = {DbName++"_reader", {reader_sup, start_link, [DbName]},
     Restart, Shutdown, Type, [reader_sup]},
-  WriterChild = {DbName++"_writer", {writer_sup, start_link, [DbName]},
+  WriterChild = {DbName++"_writer", {writer_sup, start_link, [DbName, Args]},
     Restart, Shutdown, Type, [writer_sup]},
   ManagementChild = {DbName++"_man", {man_sup, start_link, [DbName]},
     Restart, Shutdown, Type, [man_sup]},

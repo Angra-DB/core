@@ -124,8 +124,8 @@ evaluate_request(Socket, State, Tokens) ->
 % connects to an existing database.
 %
 connect(Socket, State, Database) ->
-    Persistence = State#state.persistence,
-    Res = gen_persistence:process_request(connect, Database, Database, Persistence),
+    {Persistence, Settings} = State#state.persistence,
+    Res = gen_persistence:process_request(connect, Database, Database, Persistence, Settings),
     case Res of
         db_does_not_exist ->
             gen_tcp:send(Socket, io_lib:fwrite("Database ~p does not exist~n", [Database])),
@@ -140,8 +140,8 @@ connect(Socket, State, Database) ->
 persist(Socket, _, none, _) ->
     gen_tcp:send(Socket, io_lib:fwrite("Database not set. Please use the 'use' command.~n", []));
 
-persist(Socket, Persistence, CurrentDB, {Command, Args}) ->
-    Res = gen_persistence:process_request(list_to_atom(Command), CurrentDB, Args, Persistence),
+persist(Socket, {Persistence, Settings}, CurrentDB, {Command, Args}) ->
+    Res = gen_persistence:process_request(list_to_atom(Command), CurrentDB, Args, Persistence, Settings),
     case Res of
         _Response ->
             gen_tcp:send(Socket, io_lib:fwrite("~p~n", [_Response]))
