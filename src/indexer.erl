@@ -197,8 +197,12 @@ start_index(Pid, DbName) ->
 start_index(_, [], Index, _) ->
   Index;
 start_index(Pid, [K | Keys], Index, DbName) ->
-  {ok, Version, Doc} = reader:lookup(Pid, K),
-  { ok, Tokens } = token_parser:receive_json(list_to_binary(Doc)),
-  NewIndex = adbindexer:update_mem_index(Tokens, K, Version, Index, DbName),
-  start_index(Pid, Keys, NewIndex, DbName).
+  case reader:lookup(Pid, K) of
+    {ok, Version, Doc} ->
+      { ok, Tokens } = token_parser:receive_json(list_to_binary(Doc)),
+      NewIndex = adbindexer:update_mem_index(Tokens, K, Version, Index, DbName),
+      start_index(Pid, Keys, NewIndex, DbName);
+    not_found ->
+      start_index(Pid, Keys, Index, DbName)
+  end.
 

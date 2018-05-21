@@ -183,7 +183,9 @@ save_index(Index, DBName, HashFunction) ->
 	NewHashTableBin = hashtable_to_bin(NewHashTable),
 	NewHeader = <<NewHashTableBin/binary>>,
 	file:position(Fp, bof),
-	file:write(Fp, NewHeader).
+	file:write(Fp, NewHeader),
+	clear_versions(DBName),
+	clear_deletions(DBName).
 
 write_index([], HashTable, _Fp, _HashFunction) ->
 	HashTable;
@@ -209,7 +211,11 @@ update_index(Index, DBName, HashFunction) ->
 	file:close(FpOld),
 	file:close(FpNew),
 	file:delete(IndexName),
-	file:rename("."++IndexName, IndexName).
+	file:rename("."++IndexName, IndexName),
+	clear_versions(DBName),
+	clear_deletions(DBName).
+
+
 
 merge_index([], DocTerm, HashTable, FpOld, FpNew, HashFunction) ->
 	NewHashTable = save_term(DocTerm, FpNew, HashTable, HashFunction),
@@ -255,9 +261,9 @@ postings_to_bin([], Counters) ->
 postings_to_bin([Posting | Postings], Counters) ->
 	DocKey = extract_key_from_record(Posting),
 	DocVersion = extract_version_from_record(Posting),
-	Result = lookup_doc_version(DocKey),
+	Result = {lookup_doc_version(DocKey), lookup_deleted_doc(DocKey)},
 	if
-		Result =:= {DocKey, DocVersion}; Result =:= not_found ->
+		Result =:= {{DocKey, DocVersion}, not_found}; Result =:= {not_found, not_found} ->
 			case Posting of
 				#posting{docKey = DocKey, docPos = DocPos, docVersion = DocVersion} ->
 					{PostingsBin, UpdatedCounters} = postings_to_bin(Postings, Counters),
@@ -285,12 +291,13 @@ bin_to_postings(PostingsBin, Counters) ->
 			Posting = #posting_ext{docKey = DocKey, docPos = DocPos, docVersion = DocVersion, fieldStart = FieldStart, fieldEnd = FieldEnd}
 	end,
 	{Postings, UpdatedCounters} = bin_to_postings(NewPostingsBin, Counters),
-	insert_if_current_version(Posting, DocKey, DocVersion, UpdatedCounters, Postings).
+	insert_if_valid(Posting, DocKey, DocVersion, UpdatedCounters, Postings).
 
-insert_if_current_version(Posting, DocKey, DocVersion, Counters, PostingsList) ->
-	{DocKey, CurrentVersion} = lookup_doc_version(DocKey),
-	case CurrentVersion of
-		DocVersion ->
+insert_if_valid(Posting, DocKey, DocVersion, Counters, PostingsList) ->
+	case {lookup_doc_version(DocKey), lookup_deleted_doc(DocKey)} of
+		{{DocKey, DocVersion}, not_found} ->
+			{[Posting | PostingsList], Counters};
+		{not_found, not_found} ->
 			{[Posting | PostingsList], Counters};
 		_ ->
 			{PostingsList, update_counters(Posting, Counters, decrease)}
@@ -332,7 +339,6 @@ merge_postings([P1 | DocPostings], [P2 | MemPostings], DocCounters, MemCounters)
 			UpdatedCounters = update_counters(P2, Counters),
 			{[P2 | NewPostings], UpdatedCounters};
 		false ->
-			io:format("DocKey ~w~nMemKey ~w~n", [DocPostingKey, MemPostingKey]),
 			{SkippedList, SkippedCounters} = skip_list(DocPostings, DocPostingKey),
 			DecreasedDocCounters = update_counters(DocCounters, SkippedCounters, decrease),
 			DecreasedMemCounters = update_counters(P2, MemCounters, decrease),
@@ -367,7 +373,8 @@ find(Word, Index, DBName, HashFunction) ->
 				Term
 		end,
 	DocTerm = find_doc_term(Fp, HashFunction, Word),
-	{Postings, _} = merge_postings(DocTerm#term.postings, MemTerm#term.postings, {DocTerm#term.normalPostings, DocTerm#term.normalPostings}, {MemTerm#term.normalPostings, MemTerm#term.extPostings}),
+	lager:info("Term in document ~p", [DocTerm]),
+	{Postings, _} = merge_postings(DocTerm#term.postings, MemTerm#term.postings, {DocTerm#term.normalPostings, DocTerm#term.extPostings}, {MemTerm#term.normalPostings, MemTerm#term.extPostings}),
 	map_postings(Postings).
 
 find_doc_term(Fp, HashFunction, Word) ->
@@ -403,16 +410,20 @@ map_postings([]) ->
 	[];
 
 map_postings([#posting{docKey = DocKey, docPos = DocPos, docVersion = DocVersion} | Postings]) ->
-	case lookup_doc_version(DocKey) of
-		{DocKey, DocVersion} ->
+	case {lookup_doc_version(DocKey), lookup_deleted_doc(DocKey)} of
+		{{DocKey, DocVersion}, not_found} ->
+			[{{docKey, DocKey}, {docPos, DocPos}, {docVersion, DocVersion}} | map_postings(Postings)];
+		{not_found, not_found} ->
 			[{{docKey, DocKey}, {docPos, DocPos}, {docVersion, DocVersion}} | map_postings(Postings)];
 		_ ->
 			map_postings(Postings)
 	end;
 
 map_postings([#posting_ext{docKey = DocKey, docPos = DocPos, fieldStart = FieldStart, fieldEnd = FieldEnd, docVersion = DocVersion} | Postings]) ->
-	case lookup_doc_version(DocKey) of
-		{DocKey, DocVersion} ->
+	case {lookup_doc_version(DocKey), lookup_deleted_doc(DocKey)} of
+		{{DocKey, DocVersion}, not_found} ->
+			[{{docKey, DocKey}, {docPos, DocPos}, {fieldStart, FieldStart}, {fieldEnd, FieldEnd}, {docVersion, DocVersion}} | map_postings(Postings)];
+		{not_found, not_found} ->
 			[{{docKey, DocKey}, {docPos, DocPos}, {fieldStart, FieldStart}, {fieldEnd, FieldEnd}, {docVersion, DocVersion}} | map_postings(Postings)];
 		_ ->
 			map_postings(Postings)
@@ -485,10 +496,9 @@ recover_keys(Current, Acc) ->
 	NextKey = ets:next(doc_versions, Current),
 	recover_keys(NextKey, [NextKey | Acc]).
 
-
-
-
-
+clear_versions(DbName) ->
+	ets:delete_all_objects(doc_versions),
+	file:delete(DbName++"Versions.adb").
 
 %Deletion
 
@@ -534,3 +544,7 @@ lookup_deleted_doc(DocKey) ->
 		[{DocKey, _}] ->
 			{DocKey}
 	end.
+
+clear_deletions(DbName) ->
+	ets:delete_all_objects(doc_deletions),
+	file:delete(DbName++"Deletions.adb").
