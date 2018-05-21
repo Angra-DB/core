@@ -87,11 +87,16 @@ handle_call(Request, _From, State = #state {db_name = DbName}) ->
     {connect} ->
       Reply = adbtree:connect(DbName);
     {save, {Value, Key}} ->
-      Reply = adbtree:save(DbName, Value, Key);
+      Reply = adbtree:save(DbName, Value, Key),
+      {ok, {key, NewKey}, {ver, Version}} = Reply,
+      indexer:save(DbName, Value, NewKey, Version);
     {update, {Value, Key}} ->
-      Reply = adbtree:update(DbName, Value, Key);
+      Reply = adbtree:update(DbName, Value, Key),
+      {ok, NewVersion} = Reply,
+      indexer:update(DbName, Value, Key, NewVersion);
     {delete, {Key}} ->
-      Reply = adbtree:delete(DbName, Key)
+      Reply = adbtree:delete(DbName, Key),
+      indexer:delete(DbName, Key)
   end,
   {reply, Reply, State}.
 
@@ -149,6 +154,3 @@ code_change(_OldVsn, State, _Extra) ->
 
 format_name(DbName) ->
   list_to_atom(DbName++"_writer").
-
-indexer_name(DbName) ->
-  list_to_atom(DbName++"_indexerW").

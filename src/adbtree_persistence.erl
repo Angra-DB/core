@@ -2,7 +2,7 @@
 
 -behaviour(gen_persistence).
 
--export([setup/1, teardown/1, createDB/2, connect/2, save/3, lookup/2, update/3, delete/2]).
+-export([setup/1, teardown/1, createDB/2, connect/2, save/3, lookup/2, update/3, delete/2, query_term/2]).
 
 setup([DbName]) ->
     {ok, Tree} = adbtree:start(DbName),
@@ -36,4 +36,7 @@ delete(DbName, Key) ->
 
 update(DbName, Key, Value) ->
     writer:update(atom_to_list(DbName), list_to_binary(Value), list_to_integer(Key, 16)).
+
+query_term(DbName, Term) ->
+    indexer:query_term(atom_to_list(DbName), Term).
 

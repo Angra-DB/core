@@ -434,7 +434,7 @@ hash(Word) ->
 
 start_table(DbName) ->
 	ets:new(doc_versions, [set, protected, named_table]),
-	{ok, Fp} = file:open(DbName++"Versions.adbi", [read, write, binary]),
+	{ok, Fp} = file:open(DbName++"Versions.adb", [read, write, binary]),
 	initialize_table(Fp).
 
 initialize_table(Fp) ->
@@ -474,6 +474,21 @@ lookup_doc_version(DocKey) ->
 		[{DocKey, Version, _}] ->
 			{DocKey, Version}
 	end.
+
+recover_keys() ->
+	FirstKey = ets:first(doc_versions),
+	recover_keys(FirstKey, [FirstKey]).
+
+recover_keys('$end_of_table', ['$end_of_table' | Acc]) ->
+	Acc;
+recover_keys(Current, Acc) ->
+	NextKey = ets:next(doc_versions, Current),
+	recover_keys(NextKey, [NextKey | Acc]).
+
+
+
+
+
 
 %Deletion
 

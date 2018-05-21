@@ -5,7 +5,7 @@
 -export([start/2, process_request/5, gen_key/0]).
 
 behaviour_info(callbacks) ->
-  [{setup, 1}, {teardown, 1}, {createDB, 2}, {connect, 2}, {save, 3}, {lookup, 2}, {update, 3}, {delete, 2}].
+  [{setup, 1}, {teardown, 1}, {createDB, 2}, {connect, 2}, {save, 3}, {lookup, 2}, {update, 3}, {delete, 2}, {query_term, 2}].
 
 start(_Child, _Args) ->  ok.
 
@@ -28,8 +28,10 @@ process_request(update, DB, {Key, Doc}, Child, _) ->
     Child:update(DB, Key, Doc);
 
 process_request(delete, DB, Key, Child, _) ->
-    Child:delete(DB, Key).
+    Child:delete(DB, Key);
 
+process_request(query_term, DB, Term, Child, _) ->
+    Child:query_term(DB, Term).
 
 gen_key() ->
     Time = erlang:system_time(nano_seconds),

@@ -14,6 +14,10 @@
 %% API
 -export([start_link/1]).
 -export([start_link/2]).
+-export([save/4]).
+-export([update/4]).
+-export([delete/2]).
+-export([query_term/2]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -31,6 +35,20 @@
 %%% API
 %%%===================================================================
 
+save(DbName, Value, Key, Version) ->
+  gen_server:call(format_name(DbName), {save, {Value, Key, Version}}).
+
+update(DbName, Value, Key, Version) ->
+  gen_server:call(format_name(DbName), {update, {Value, Key, Version}}).
+
+delete(DbName, Key) ->
+  gen_server:call(format_name(DbName), {delete, {Key}}).
+
+query_term(DbName, Term) ->
+  Name = format_name(DbName),
+  CallResult = gen_server:call(Name, {query, Term}),
+
+  CallResult.
 %%--------------------------------------------------------------------
 %% @doc
 %% Starts the server
@@ -38,12 +56,10 @@
 %% @end
 %%--------------------------------------------------------------------
 start_link(DbName) ->
-  lager:info("Args in indexer", []),
   start_link(DbName, []).
 
 start_link(DbName, Args) ->
   IndexMaxSize = proplists:get_value(max_index_size, Args),
-  lager:info("Args in indexer ~p", [IndexMaxSize]),
   gen_server:start_link({local, format_name(DbName)}, ?MODULE, [DbName, IndexMaxSize], []).
 
 %%%===================================================================
@@ -64,7 +80,8 @@ start_link(DbName, Args) ->
 init([DbName, IndexMaxSize]) ->
   adbindexer:start_table(DbName),
   adbindexer:start_deletion_table(DbName),
-  {ok, #state{ db_name =  DbName, index = [], index_max_size = IndexMaxSize }}.
+  {ok, Pid} = reader_sup:start_child(DbName),
+  {ok, #state{ db_name =  DbName, index = start_index(Pid, DbName), index_max_size = IndexMaxSize }}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -75,19 +92,26 @@ init([DbName, IndexMaxSize]) ->
 %%--------------------------------------------------------------------
 handle_call(Request, _From, State = #state {db_name = DbName, index = Index}) ->
   case Request of
+    {query, Term} ->
+      Reply = adbindexer:find(Term, Index, DbName, fun adbindexer:hash/1),
+      NewIndex = Index;
     {save, {Value, Key, Version}} ->
+      lager:info("Saving document: ~p", [Value]),
       { ok, Tokens } = token_parser:receive_json(Value),
       AddedIndex = adbindexer:update_mem_index(Tokens, Key, Version, Index, DbName),
-      NewIndex = flush_if_full(AddedIndex);
+      Reply = ok,
+      NewIndex = flush_if_full(AddedIndex, State);
     {update, {Value, Key, Version}} ->
       { ok, Tokens } = token_parser:receive_json(Value),
       AddedIndex = adbindexer:update_mem_index(Tokens, Key, Version, Index, DbName),
-      NewIndex = flush_if_full(AddedIndex);
+      Reply = ok,
+      NewIndex = flush_if_full(AddedIndex, State);
     {delete, {Key}} ->
       adbindexer:add_deleted_doc(Key, DbName),
+      Reply = ok,
       NewIndex = Index
   end,
-  {reply, ok, State#state{index = NewIndex}}.
+  {reply, Reply, State#state{index = NewIndex}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -123,7 +147,8 @@ handle_info(_Info, State) ->
 %% @spec terminate(Reason, State) -> void()
 %% @end
 %%--------------------------------------------------------------------
-terminate(_Reason, _State) ->
+terminate(_Reason, #state {index = Index, db_name = DbName}) ->
+  save_index(Index, DbName),
   ok.
 
 %%--------------------------------------------------------------------
@@ -145,5 +170,35 @@ code_change(_OldVsn, State, _Extra) ->
 format_name(DbName) ->
   list_to_atom(DbName++"_indexer").
 
-flush_if_full(AddedIndex) ->
-  erlang:error(not_implemented).
+flush_if_full(AddedIndex, #state {db_name = DbName, index_max_size = MaxSize}) ->
+  case erts_debug:flat_size(AddedIndex) > MaxSize of
+    true ->
+      save_index(AddedIndex, DbName);
+    _ ->
+      AddedIndex
+  end.
+
+save_index(Index, DbName) ->
+  IndexName = DbName++"Index.adbi",
+  case file:open(IndexName, [read, binary]) of
+    {error, enoent} ->
+      adbindexer:save_index(Index, DbName, fun adbindexer:hash/1),
+      [];
+    {ok, Fp} ->
+      file:close(Fp),
+      adbindexer:update_index(Index, DbName, fun adbindexer:hash/1),
+      []
+  end.
+
+start_index(Pid, DbName) ->
+  Keys = adbindexer:recover_keys(),
+  start_index(Pid, Keys, [], DbName).
+
+start_index(_, [], Index, _) ->
+  Index;
+start_index(Pid, [K | Keys], Index, DbName) ->
+  {ok, Version, Doc} = reader:lookup(Pid, K),
+  { ok, Tokens } = token_parser:receive_json(list_to_binary(Doc)),
+  NewIndex = adbindexer:update_mem_index(Tokens, K, Version, Index, DbName),
+  start_index(Pid, Keys, NewIndex, DbName).
+

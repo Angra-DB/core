@@ -486,9 +486,9 @@ btree_update(Doc, Key, DBName) ->
 		NameIndex = DBName++"Index.adb",
 		{ok, Fp} = file:open(NameIndex, [read, write, binary]),
 		{Settings, Btree} = get_header(Fp),
-		btree_update(Fp, Settings, Btree, Key, Doc, root),
+		{ok, NewVersion} = btree_update(Fp, Settings, Btree, Key, Doc, root),
 		file:close(Fp),
-		ok
+		{ok, NewVersion}
 	catch
 		error:Error ->
 			{error, Error}
@@ -502,16 +502,16 @@ btree_update(Fp, Settings, Btree = #btree{curNode = PNode}, Key, Doc, IsRoot) ->
 			Node = read_node(Fp, Btree),
 			NextNode = find_next_node(Node, Key),
 			try
-				SonPointer = btree_update(Fp, Settings, Btree#btree{curNode = NextNode}, Key, Doc, noRoot),
+				{SonPointer, NewVersion} = btree_update(Fp, Settings, Btree#btree{curNode = NextNode}, Key, Doc, noRoot),
 				NewNode = update_reference(Node, Key, SonPointer),
 				{ok, NewPosNode} = write_node(Fp, Btree, NewNode),
 				if
 					IsRoot == root ->
-						% Atualiza header
+						% Updates header
 						write_header(Fp, Settings, Btree, NewPosNode),
-						ok;
+						{ok, NewVersion};
 					true ->
-						NewPosNode
+						{NewPosNode, NewVersion}
 				end
 			catch
 				error:Error ->
@@ -528,9 +528,9 @@ btree_update(Fp, Settings, Btree = #btree{curNode = PNode}, Key, Doc, IsRoot) ->
 			if
 				IsRoot == root ->
 					write_header(Fp, Settings, Btree, NewLeafPos),
-					ok;
+					{ok, NewVersion};
 				true ->
-					NewLeafPos
+					{NewLeafPos, NewVersion}
 			end;
 		_V ->
 			error(invalidNodeId)
