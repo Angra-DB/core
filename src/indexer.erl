@@ -47,7 +47,6 @@ delete(DbName, Key) ->
 query_term(DbName, Term) ->
   Name = format_name(DbName),
   CallResult = gen_server:call(Name, {query, Term}),
-
   CallResult.
 %%--------------------------------------------------------------------
 %% @doc
@@ -96,13 +95,14 @@ handle_call(Request, _From, State = #state {db_name = DbName, index = Index}) ->
       Reply = adbindexer:find(Term, Index, DbName, fun adbindexer:hash/1),
       NewIndex = Index;
     {save, {Value, Key, Version}} ->
-      lager:info("Saving document: ~p", [Value]),
       { ok, Tokens } = token_parser:receive_json(Value),
+      lager:info("Saving document: ~p, with tokens ~p", [Value, Tokens]),
       AddedIndex = adbindexer:update_mem_index(Tokens, Key, Version, Index, DbName),
       Reply = ok,
       NewIndex = flush_if_full(AddedIndex, State);
     {update, {Value, Key, Version}} ->
       { ok, Tokens } = token_parser:receive_json(Value),
+      lager:info("Saving document: ~p, with tokens ~p", [Value, Tokens]),
       AddedIndex = adbindexer:update_mem_index(Tokens, Key, Version, Index, DbName),
       Reply = ok,
       NewIndex = flush_if_full(AddedIndex, State);
@@ -171,7 +171,9 @@ format_name(DbName) ->
   list_to_atom(DbName++"_indexer").
 
 flush_if_full(AddedIndex, #state {db_name = DbName, index_max_size = MaxSize}) ->
-  case erts_debug:flat_size(AddedIndex) > MaxSize of
+  Size = erts_debug:flat_size(AddedIndex),
+  lager:info("Index size: ~p", [Size]),
+  case Size > MaxSize of
     true ->
       save_index(AddedIndex, DbName);
     _ ->
@@ -182,16 +184,18 @@ save_index(Index, DbName) ->
   IndexName = DbName++"Index.adbi",
   case file:open(IndexName, [read, binary]) of
     {error, enoent} ->
+      lager:info("Creating file inverted index with index ~p", [Index]),
       adbindexer:save_index(Index, DbName, fun adbindexer:hash/1),
       [];
     {ok, Fp} ->
       file:close(Fp),
+      lager:info("Merging file inverted index with index ~p", [Index]),
       adbindexer:update_index(Index, DbName, fun adbindexer:hash/1),
       []
   end.
 
 start_index(Pid, DbName) ->
-  Keys = adbindexer:recover_keys(),
+  Keys = adbindexer:recover_keys(DbName),
   start_index(Pid, Keys, [], DbName).
 
 start_index(_, [], Index, _) ->
