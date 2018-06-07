@@ -5,7 +5,7 @@
 -define(SizeOfPosting, 28).
 -define(SizeOfExtPosting, 44).
 -define(SizeOfCount, 8).
--define(SizeOfWord, 60).
+-define(SizeOfWord, 200).
 -define(SizeOfHeader, 5).
 -define(SizeOfVersion, 5).
 -define(SizeOfTerm, 72).

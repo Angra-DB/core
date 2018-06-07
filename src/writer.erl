@@ -87,9 +87,14 @@ handle_call(Request, _From, State = #state {db_name = DbName}) ->
     {connect} ->
       Reply = adbtree:connect(DbName);
     {save, {Value, Key}} ->
-      Reply = adbtree:save(DbName, Value, Key),
-      {ok, {key, NewKey}, {ver, Version}} = Reply,
-      indexer:save(DbName, Value, NewKey, Version);
+      Reply =
+        case adbtree:save(DbName, Value, Key) of
+          {ok, {key, NewKey}, {ver, Version}} ->
+            indexer:save(DbName, Value, NewKey, Version),
+            {ok, {key, NewKey}, {ver, Version}};
+          Else ->
+            Else
+        end;
     {update, {Value, Key}} ->
       Reply = adbtree:update(DbName, Value, Key),
       {ok, NewVersion} = Reply,
