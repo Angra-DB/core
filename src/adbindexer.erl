@@ -223,7 +223,7 @@ merge_index([MemTerm | Index], DocTerm, HashTable, FpOld, FpNew, HashFunction, D
 	case MemTerm#term.word < DocTerm#term.word of
 		true ->
 			NewHashTable = save_term(MemTerm, FpNew, HashTable, HashFunction, DbName),
-			merge_index(Index, DocTerm, NewHashTable, FpOld, FpNew, HashFunction);
+			merge_index(Index, DocTerm, NewHashTable, FpOld, FpNew, HashFunction, DbName);
 		false when MemTerm#term.word > DocTerm#term.word ->
 			NewHashTable = save_term(DocTerm, FpNew, HashTable, HashFunction, DbName),
 			merge_index([MemTerm | Index], NewHashTable, FpOld, FpNew, HashFunction, DbName);
@@ -340,8 +340,8 @@ merge_postings([P1 | DocPostings], [P2 | MemPostings], DocCounters, MemCounters)
 			{SkippedList, SkippedCounters} = skip_list(DocPostings, DocPostingKey),
 			DecreasedDocCounters = update_counters(DocCounters, SkippedCounters, decrease),
 			DecreasedMemCounters = update_counters(P2, MemCounters, decrease),
-			{NewPostings, {NormalPostings, ExtPostings}} = merge_postings(SkippedList, MemPostings, DecreasedDocCounters, DecreasedMemCounters),
-			UpdatedCounters = update_counters(P2, NormalPostings, ExtPostings),
+			{NewPostings, Counters} = merge_postings(SkippedList, MemPostings, DecreasedDocCounters, DecreasedMemCounters),
+			UpdatedCounters = update_counters(P2, Counters),
 			{[P2 | NewPostings], UpdatedCounters}
 	end.
 

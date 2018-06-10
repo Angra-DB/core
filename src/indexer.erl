@@ -95,8 +95,8 @@ handle_call(Request, _From, State = #state {db_name = DbName, index = Index}) ->
       Reply = adbindexer:find(Term, Index, DbName, fun adbindexer:hash/1),
       NewIndex = Index;
     {save, {Value, Key, Version}} ->
+      lager:info("Saving document: ~s", [Value]),
       { ok, Tokens } = token_parser:receive_json(Value),
-      lager:info("Saving document: ~p, with tokens ~p", [Value, Tokens]),
       AddedIndex = adbindexer:update_mem_index(Tokens, Key, Version, Index, DbName),
       Reply = ok,
       NewIndex = flush_if_full(AddedIndex, State);
@@ -184,12 +184,10 @@ save_index(Index, DbName) ->
   IndexName = DbName++"Index.adbi",
   case file:open(IndexName, [read, binary]) of
     {error, enoent} ->
-      lager:info("Creating file inverted index with index ~p", [Index]),
       adbindexer:save_index(Index, DbName, fun adbindexer:hash/1),
       [];
     {ok, Fp} ->
       file:close(Fp),
-      lager:info("Merging file inverted index with index ~p", [Index]),
       adbindexer:update_index(Index, DbName, fun adbindexer:hash/1),
       []
   end.

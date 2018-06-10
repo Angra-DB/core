@@ -55,7 +55,7 @@ init([LSock, Args]) ->
 
   Restart = permanent,
   Shutdown = 2000,
-  Type = worker,
+  Type = supervisor,
 
   ServerSup = {server_sup, {server_sup, start_link, [LSock, Args]},
     Restart, Shutdown, Type, [server_sup]},
