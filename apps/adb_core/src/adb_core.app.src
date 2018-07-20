@@ -7,7 +7,10 @@
  {mod,
     {adb_core_app, [
         %% List of host that the adb_core will try to find the server
-        {hosts, ['127.0.0.1']} %% {hosts, ['unb.br', '127.0.0.1']}
+        {port, 1234},             %% Port which the server will listen
+        {persistence, adbtree},   %% {persistence, ets | hanoidb | adbtree}
+        {distribution, default},  %% {distribution, short | {long, Host::atom()} | default}
+        {vnodes, 3}               %% Number of vnodes
     ]}
  }
 ]}.

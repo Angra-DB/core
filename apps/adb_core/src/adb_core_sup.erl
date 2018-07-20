@@ -19,14 +19,17 @@
 
 -define(SERVER, ?MODULE).
 
-start_link(State) ->
-    supervisor:start_link({local, ?SERVER}, ?MODULE, [State]).
+start_link(Config) ->
+    supervisor:start_link({local, ?SERVER}, ?MODULE, Config).
 
 start_child() ->
     supervisor:start_child(?SERVER, []).
 
 init(Args) ->
     Core = {adb_core_server, {adb_core, start_link, Args}, % {Id, Start, Restart, ...}
-                temporary, brutal_kill, worker, [adb_core]},
+            temporary, brutal_kill, worker, [adb_core]},
+    DistSup = {adb_dist_sup, {adb_dist_sup, start_link, Args},
+               temporary, brutal_kill, worker, [adb_dist_sup]},
     RestartStrategy = {simple_one_for_one, 1000, 3600}, % {How, Max, Within} ... Max restarts within a period
-    {ok, {RestartStrategy, [Core]}}.
+    VNodes = proplists:get_value(distribution, Args),
+    {ok, {RestartStrategy, lists:duplicate(VNodes, Core) ++ DistSup}}.
