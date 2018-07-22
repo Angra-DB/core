@@ -16,11 +16,7 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {port, 
-                persistence, 
-                distribution, 
-                vnodes, 
-                server=none}).
+-record(state, {port, persistence, distribution, replication, vnodes, server=none}).
 
 %%=============================================================================
 %% API functions
@@ -39,7 +35,7 @@ stop() ->
 %% gen_server callbacks
 %%=============================================================================
 
-init([Port, Persistence, Distribution, VNodes, RemoteServer]) ->
+init([Port, Persistence, Distribution, Replication, VNodes, RemoteServer]) ->
     lager:info("Initializing adb_dist.~n"),
     Server = case RemoteServer of
         none   -> init_server(Port),
@@ -49,11 +45,12 @@ init([Port, Persistence, Distribution, VNodes, RemoteServer]) ->
     {ok, #state{port = Port, 
                 persistence = Persistence, 
                 distribution = Distribution,
+                replication = Replication,
                 vnodes = VNodes,
                 server = Server}, 0}.
 
 handle_call({node_up, []}, _From, State) ->
-    {reply, {ok, State}, State};
+    {reply, {ok, tl(tuple_to_list(State))}, State};
 handle_call(Msg, _From, State) ->
     {reply, {ok, Msg}, State}.
 
