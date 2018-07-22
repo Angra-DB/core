@@ -15,7 +15,7 @@ Execute the following commands:
 
 ```
 $ make run 
-$ rebar3 shell --apps adb_server
+$ rebar3 shell --apps adb_core
 ```
 > Tip: The flag `--apps` inform which apps should be started on `shell` command.
 
