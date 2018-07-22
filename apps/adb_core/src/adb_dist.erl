@@ -16,25 +16,18 @@
 
 -define(SERVER, ?MODULE).
 
+-record(state, {port, 
+                persistence, 
+                distribution, 
+                vnodes, 
+                server=none}).
+
 %%=============================================================================
 %% API functions
 %%=============================================================================
 
 start_link(Config) ->
-    lager:info("Starting the AngraDB server."), 
-    Port = case application:get_env(tcp_interface, port) of
-        {ok, P}   -> P;
-        undefined -> proplists:get_value(port, Config)
-    end,
-    {ok, LSock} = gen_tcp:listen(Port, [{active,true}, {reuseaddr, true}]),
-    lager:info("Listening to TCP requests on port ~w.", [Port]),
-    case adb_server_sup:start_link(LSock, Config) of
-        {ok, Pid} -> adb_server_sup:start_child(),
-                     {ok, Pid};
-        Other     -> error_logger:error_msg(" error: ~s.", [Other]),
-                     {error, Other}
-    end,
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [Config], []).
+    gen_server:start_link({local, ?SERVER}, ?MODULE, Config, []).
 
 get_count() ->
     gen_server:call(?SERVER, get_count).
@@ -46,11 +39,21 @@ stop() ->
 %% gen_server callbacks
 %%=============================================================================
 
-init([State]) ->
-    {ok, State, 0}.
+init([Port, Persistence, Distribution, VNodes, RemoteServer]) ->
+    lager:info("Initializing adb_dist.~n"),
+    Server = case RemoteServer of
+        none   -> init_server(Port),
+                  node();
+        Remote -> Remote
+    end,
+    {ok, #state{port = Port, 
+                persistence = Persistence, 
+                distribution = Distribution,
+                vnodes = VNodes,
+                server = Server}, 0}.
 
-handle_call({node_up, Args}, From, State) ->
-    {reply, Args, State};
+handle_call({node_up, []}, _From, State) ->
+    {reply, {ok, State}, State};
 handle_call(Msg, _From, State) ->
     {reply, {ok, Msg}, State}.
 
@@ -65,3 +68,22 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+%%==============================================================================
+%% Internal functions
+%%==============================================================================
+
+init_server(Port) ->
+    lager:info("Starting the AngraDB server."), 
+    Port = case application:get_env(tcp_interface, port) of
+        {ok, P}   -> P;
+        undefined -> proplists:get_value(port, Port)
+    end,
+    {ok, LSock} = gen_tcp:listen(Port, [{active,true}, {reuseaddr, true}]),
+    lager:info("Listening to TCP requests on port ~w.", [Port]),
+    case adb_server_sup:start_link(LSock) of
+        {ok, Pid} -> adb_server_sup:start_child(),
+                     {ok, Pid};
+        Other     -> error_logger:error_msg(" error: ~s.", [Other]),
+                     {error, Other}
+    end.

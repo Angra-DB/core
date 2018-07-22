@@ -9,7 +9,8 @@
         %% List of host that the adb_core will try to find the server
         {port, 1234},             %% Port which the server will listen
         {persistence, adbtree},   %% {persistence, ets | hanoidb | adbtree}
-        {distribution, default},  %% {distribution, short | {long, Host::atom()} | default}
+        {distribution, {long, '127.0.0.1'}},     %% {distribution, {long, Host::atom()} | mono}
+        {replication, 3},         %% Number of copies
         {vnodes, 3}               %% Number of vnodes
     ]}
  }
