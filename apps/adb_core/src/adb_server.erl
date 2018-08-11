@@ -17,7 +17,7 @@
 % API functions
 %
 
--export([ start_link/2
+-export([ start_link/1
 	, get_count/0   % we can understand both get_count and stop as adm operations
     , stop/0]).
 
@@ -46,8 +46,8 @@
 %%% is a bit trick.
 %%%======================================================
 
-start_link(LSock, Persistence) ->
-    gen_server:start_link(?MODULE, [LSock, Persistence], []).
+start_link(LSock) ->
+    gen_server:start_link(?MODULE, [LSock, adbtree], []).
 
 get_count() ->
     gen_server:call(?SERVER, get_count).

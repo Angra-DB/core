@@ -2,7 +2,7 @@
 -behavior(supervisor).
 
 %% API
--export([start_link/1, start_child/0]).
+-export([start_link/1, start_child/0, start_child/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -14,6 +14,9 @@ start_link(Config) ->
 
 start_child() ->
     supervisor:start_child(?SERVER, []).
+
+start_child(ChildSpec) ->
+    supervisor:start_child(?MODULE, ChildSpec).
 
 init(Args) ->
     Dist = #{id       => adb_dist, 

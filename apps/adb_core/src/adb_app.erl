@@ -1,4 +1,4 @@
--module(adb_core_app).
+-module(adb_app).
 %% The purpose of an active application is 
 %% to run one or more processes. In order to 
 %% have some control over those process, they 
@@ -31,13 +31,18 @@ start(_Type, StartArgs) ->
     {ok, _Mode} = configure_dist({Dist, Host}, Target),
 
     lager:info("Starting the AngraDB"),
-    case adb_core_sup:start_link(Config) of
-        {ok, Pid}   -> adb_core_sup:start_child(),
+    Res = case adb_sup:start_link(Config) of
+        {ok, Pid}   -> adb_sup:start_child(),
                        {ok, Pid};
         Other       -> error_logger:error_msg(" error: ~s", [Other]),
                        {error, Other}
-    end.
-    
+    end,
+    case gen_server:call(adb_dist, {init_server_or_acknowledge, []}) of
+        {ok, init}                  -> lager:info("Server initilized on this node: ~p. ~n", [node()]);
+        {ok, {acknowledge, Remote}} -> lager:info("Acknowledge to remote server: ~p. ~n", [Remote])
+    end,
+    Res.
+
 stop(_State) ->
     ok.
 
@@ -55,7 +60,7 @@ search_for_node(long, Target) ->
         _           -> lager:warning("Node not found.~n"),
                        {notfound}
     end,
-    ok = net_kernel:stop(),
+    stop_node(),
     Result;
 search_for_node(mono, _) ->
     {notfound}.
@@ -93,6 +98,9 @@ start_node() ->
                          TempName;
         ChosenName    -> ChosenName
     end.
+
+stop_node() ->
+    ok = net_kernel:stop().
 
 
 

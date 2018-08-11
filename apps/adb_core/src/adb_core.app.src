@@ -2,10 +2,10 @@
  {description, "The angra-db core persistence service."},
  {vsn, "0.0.1"},
  {modules, []},
- {registered, [adb_core_sup]},
+ {registered, [adb_sup]},
  {applications, [kernel, stdlib, lager]},
  {mod,
-    {adb_core_app, [
+    {adb_app, [
         %% List of host that the adb_core will try to find the server
         {port, 1234},             %% Port which the server will listen
         {persistence, adbtree},   %% {persistence, ets | hanoidb | adbtree}

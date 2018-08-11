@@ -1,4 +1,4 @@
--module(adb_core_sup).
+-module(adb_sup).
 
 % As explained before (see the adb_server_app.erl module), 
 % an active OTP application consists of one or more 
@@ -37,9 +37,9 @@ init(Args) ->
                modules  => [adb_core]} || Name <- CoreNames],
     DistSup = #{id       => adb_dist_sup, 
                 start    => {adb_dist_sup, start_link, [Args]}, 
-                restart  => temporary, 
-                shutdown => brutal_kill, 
-                type     => worker, 
+                restart  => permanent, 
+                shutdown => infinity, 
+                type     => supervisor, 
                 modules  => [adb_dist_sup]},
     RestartStrategy = {one_for_one, 1000, 3600},
     {ok, {RestartStrategy, Cores ++ [DistSup]}}.

@@ -16,6 +16,8 @@
 
 -define(SERVER, ?MODULE).
 
+-define(DEFAULT_PORT, 1234).
+
 -record(state, {port, persistence, distribution, replication, vnodes, server=none}).
 
 %%=============================================================================
@@ -37,20 +39,21 @@ stop() ->
 
 init([Port, Persistence, Distribution, Replication, VNodes, RemoteServer]) ->
     lager:info("Initializing adb_dist.~n"),
-    Server = case RemoteServer of
-        none   -> init_server(Port),
-                  node();
-        Remote -> Remote
-    end,
     {ok, #state{port = Port, 
                 persistence = Persistence, 
                 distribution = Distribution,
                 replication = Replication,
                 vnodes = VNodes,
-                server = Server}, 0}.
+                server = RemoteServer}, 0}.
 
 handle_call({node_up, []}, _From, State) ->
     {reply, {ok, tl(tuple_to_list(State))}, State};
+handle_call({init_server_or_acknowledge, []}, _From, State) ->
+    case State#state.server of
+        {server, none}   -> {ok, _Pid} = init_server(State#state.port),
+                            {reply, {ok, init}, State#state{server=node()}};
+        Remote           -> {reply, {ok, {acknowledge, Remote}}, State}
+    end;
 handle_call(Msg, _From, State) ->
     {reply, {ok, Msg}, State}.
 
@@ -70,17 +73,21 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%==============================================================================
 
-init_server(Port) ->
-    lager:info("Starting the AngraDB server."), 
-    Port = case application:get_env(tcp_interface, port) of
-        {ok, P}   -> P;
-        undefined -> proplists:get_value(port, Port)
+init_server(PortConfig) ->
+    Port = case PortConfig of
+        {port, P} -> P;
+        true      -> ?DEFAULT_PORT
     end,
     {ok, LSock} = gen_tcp:listen(Port, [{active,true}, {reuseaddr, true}]),
     lager:info("Listening to TCP requests on port ~w.", [Port]),
-    case adb_server_sup:start_link(LSock) of
-        {ok, Pid} -> adb_server_sup:start_child(),
-                     {ok, Pid};
+    ServerSpec = #{id       => adb_server_sup,
+                   start    => {adb_server_sup, start_link, [LSock]},
+                   restart  => permanent,
+                   shutdown => infinity,
+                   type     => supervisor,
+                   modules  => [adb_server_sup]},
+    case adb_dist_sup:start_child(ServerSpec) of
+        {ok, Pid} -> {ok, Pid};
         Other     -> error_logger:error_msg(" error: ~s.", [Other]),
                      {error, Other}
     end.
