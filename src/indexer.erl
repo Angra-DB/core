@@ -36,7 +36,7 @@
 %%%===================================================================
 
 save(DbName, Value, Key, Version) ->
-  gen_server:call(format_name(DbName), {save, {Value, Key, Version}}).
+  gen_server:call(format_name(DbName), {save, {Value, Key, Version}}, 60000).
 
 update(DbName, Value, Key, Version) ->
   gen_server:call(format_name(DbName), {update, {Value, Key, Version}}).
@@ -171,11 +171,15 @@ format_name(DbName) ->
   list_to_atom(DbName++"_indexer").
 
 flush_if_full(AddedIndex, #state {db_name = DbName, index_max_size = MaxSize}) ->
+
   Size = erts_debug:flat_size(AddedIndex),
   lager:info("Index size: ~p", [Size]),
   case Size > MaxSize of
     true ->
-      save_index(AddedIndex, DbName);
+      lager:info("~n~nFlushing Index~n~n"),
+      Result = save_index(AddedIndex, DbName),
+      lager:info("~n~nFlush Succeeded~n~n"),
+      Result;
     _ ->
       AddedIndex
   end.

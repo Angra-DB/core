@@ -6,7 +6,7 @@
  {applications, [kernel, stdlib, lager]},
  {mod, {adb_app, 
         % {persistence, {{name, ets | hanoidb | adbtree }, [Args]}
-        [{persistence, {{name, adbtree}, [{max_index_size, 50000000}]}}]
+        [{persistence, {{name, adbtree}, [{max_index_size, 1000000}]}}]
        }
  }
 ]}.
