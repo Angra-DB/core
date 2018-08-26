@@ -30,13 +30,15 @@ start_child() ->
     supervisor:start_child(?SERVER, []).
 
 init([LSock, Persistence]) ->
-    Server = {adb_server, {adb_server, start_link, [LSock, Persistence]}, % {Id, Start, Restart, ... }
-	      temporary, brutal_kill, worker, [adb_server]},
-    RestartStrategy = {simple_one_for_one, 1000, 3600},  % {How, Max, Within} ... Max restarts within a period
-    {ok, {RestartStrategy, [Server]}}. 
- 
+  lager:info("Initializing server_sup and adbsecurity modules.", []),
+  adbsecurity:init(),
+  Server = {adb_server, {adb_server, start_link, [LSock, Persistence]}, % {Id, Start, Restart, ... }
+      temporary, brutal_kill, worker, [adb_server]},
+  RestartStrategy = {simple_one_for_one, 1000, 3600},  % {How, Max, Within} ... Max restarts within a period
+  {ok, {RestartStrategy, [Server]}}.
+
 setup_persistence(Args) ->
-    lager:info("Setting up the persistence module.", []),
+  lager:info("Setting up the persistence module.", []),
     case proplists:get_value(persistence, Args) of
       {{name, hanoidb}, Settings } ->
         lager:info("Starting HanoiDB..."),
