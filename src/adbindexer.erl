@@ -412,7 +412,7 @@ map_postings([#posting{docKey = DocKey, docPos = DocPos, docVersion = DocVersion
 		{{DocKey, DocVersion}, not_found} ->
 			[{{docKey, integer_to_list(DocKey, 16)}, {docPos, DocPos}, {docVersion, DocVersion}} | map_postings(Postings, DbName)];
 		{not_found, not_found} ->
-			[{{docKey, DocKey}, {docPos, DocPos}, {docVersion, DocVersion}} | map_postings(Postings, DbName)];
+			[{{docKey, integer_to_list(DocKey, 16)}, {docPos, DocPos}, {docVersion, DocVersion}} | map_postings(Postings, DbName)];
 		_ ->
 			map_postings(Postings, DbName)
 	end;
@@ -420,9 +420,9 @@ map_postings([#posting{docKey = DocKey, docPos = DocPos, docVersion = DocVersion
 map_postings([#posting_ext{docKey = DocKey, docPos = DocPos, fieldStart = FieldStart, fieldEnd = FieldEnd, docVersion = DocVersion} | Postings], DbName) ->
 	case {lookup_doc_version(DocKey, DbName), lookup_deleted_doc(DocKey, DbName)} of
 		{{DocKey, DocVersion}, not_found} ->
-			[{{docKey, DocKey}, {docPos, DocPos}, {fieldStart, FieldStart}, {fieldEnd, FieldEnd}, {docVersion, DocVersion}} | map_postings(Postings, DbName)];
+			[{{docKey, integer_to_list(DocKey, 16)}, {docPos, DocPos}, {fieldStart, FieldStart}, {fieldEnd, FieldEnd}, {docVersion, DocVersion}} | map_postings(Postings, DbName)];
 		{not_found, not_found} ->
-			[{{docKey, DocKey}, {docPos, DocPos}, {fieldStart, FieldStart}, {fieldEnd, FieldEnd}, {docVersion, DocVersion}} | map_postings(Postings, DbName)];
+			[{{docKey, integer_to_list(DocKey, 16)}, {docPos, DocPos}, {fieldStart, FieldStart}, {fieldEnd, FieldEnd}, {docVersion, DocVersion}} | map_postings(Postings, DbName)];
 		_ ->
 			map_postings(Postings, DbName)
 	end.
