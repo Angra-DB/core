@@ -12,7 +12,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0]).
+-export([start_link/1, process_query/2]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -24,7 +24,7 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {}).
+-record(state, {dbName}).
 
 %%%===================================================================
 %%% API
@@ -36,10 +36,11 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(start_link() ->
-  {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
-start_link() ->
-  gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+start_link(DbName) ->
+  gen_server:start_link({local, format_name(DbName)}, ?MODULE, [DbName], []).
+
+process_query(DbName, Query) ->
+  gen_server:call(format_name(DbName), {query, Query}).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -56,11 +57,8 @@ start_link() ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
--spec(init(Args :: term()) ->
-  {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
-  {stop, Reason :: term()} | ignore).
-init([]) ->
-  {ok, #state{}}.
+init([DbName]) ->
+  {ok, #state{dbName = DbName}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -69,16 +67,12 @@ init([]) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(handle_call(Request :: term(), From :: {pid(), Tag :: term()},
-    State :: #state{}) ->
-  {reply, Reply :: term(), NewState :: #state{}} |
-  {reply, Reply :: term(), NewState :: #state{}, timeout() | hibernate} |
-  {noreply, NewState :: #state{}} |
-  {noreply, NewState :: #state{}, timeout() | hibernate} |
-  {stop, Reason :: term(), Reply :: term(), NewState :: #state{}} |
-  {stop, Reason :: term(), NewState :: #state{}}).
-handle_call(_Request, _From, State) ->
-  {reply, ok, State}.
+handle_call(Request, _From, State = #state{dbName = DbName}) ->
+  case Request of
+    {query, Query} ->
+      Response = query_processor:process_query(Query, DbName)
+  end,
+  {reply, Response, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -87,10 +81,6 @@ handle_call(_Request, _From, State) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(handle_cast(Request :: term(), State :: #state{}) ->
-  {noreply, NewState :: #state{}} |
-  {noreply, NewState :: #state{}, timeout() | hibernate} |
-  {stop, Reason :: term(), NewState :: #state{}}).
 handle_cast(_Request, State) ->
   {noreply, State}.
 
@@ -104,10 +94,6 @@ handle_cast(_Request, State) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
--spec(handle_info(Info :: timeout() | term(), State :: #state{}) ->
-  {noreply, NewState :: #state{}} |
-  {noreply, NewState :: #state{}, timeout() | hibernate} |
-  {stop, Reason :: term(), NewState :: #state{}}).
 handle_info(_Info, State) ->
   {noreply, State}.
 
@@ -122,8 +108,6 @@ handle_info(_Info, State) ->
 %% @spec terminate(Reason, State) -> void()
 %% @end
 %%--------------------------------------------------------------------
--spec(terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
-    State :: #state{}) -> term()).
 terminate(_Reason, _State) ->
   ok.
 
@@ -135,12 +119,13 @@ terminate(_Reason, _State) ->
 %% @spec code_change(OldVsn, State, Extra) -> {ok, NewState}
 %% @end
 %%--------------------------------------------------------------------
--spec(code_change(OldVsn :: term() | {down, term()}, State :: #state{},
-    Extra :: term()) ->
-  {ok, NewState :: #state{}} | {error, Reason :: term()}).
 code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+
+format_name(DbName) ->
+  list_to_atom(DbName++"_query").

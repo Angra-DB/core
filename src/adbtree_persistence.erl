@@ -2,7 +2,7 @@
 
 -behaviour(gen_persistence).
 
--export([setup/1, teardown/1, createDB/2, connect/2, save/3, lookup/2, update/3, delete/2, query_term/2]).
+-export([setup/1, teardown/1, createDB/2, connect/2, save/3, lookup/2, update/3, delete/2, query_term/2, query/2]).
 
 setup([DbName]) ->
     {ok, Tree} = adbtree:start(DbName),
@@ -39,4 +39,7 @@ update(DbName, Key, Value) ->
 
 query_term(DbName, Term) ->
     indexer:query_term(atom_to_list(DbName), Term).
+
+query(DbName, Query) ->
+  query_server:process_query(atom_to_list(DbName), Query).
 

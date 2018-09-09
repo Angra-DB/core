@@ -160,7 +160,7 @@ preprocess(RawData) ->
     end.
 
 filter_command(Command) ->
-    ValidCommands = ["save", "save_key", "lookup", "update", "delete", "connect", "create_db", "delete_db", "query_term"],
+    ValidCommands = ["save", "save_key", "lookup", "update", "delete", "connect", "create_db", "delete_db", "query_term", "query"],
     [X || X <- ValidCommands, X =:= Command].
 
 split(Str) ->

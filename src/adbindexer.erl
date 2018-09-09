@@ -371,7 +371,6 @@ find(Word, Index, DBName, HashFunction) ->
 				Term
 		end,
 	DocTerm = find_doc_term(Fp, HashFunction, Word, DBName),
-	lager:info("Term in document ~p", [DocTerm]),
 	{Postings, _} = merge_postings(DocTerm#term.postings, MemTerm#term.postings, {DocTerm#term.normalPostings, DocTerm#term.extPostings}, {MemTerm#term.normalPostings, MemTerm#term.extPostings}),
 	map_postings(Postings, DBName).
 

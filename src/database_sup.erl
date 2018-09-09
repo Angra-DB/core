@@ -57,15 +57,19 @@ init([DbName, Args]) ->
   Shutdown = 2000,
   Type = supervisor,
 
+  lager:info("DbName = ~p", [DbName]),
+
   ReaderChild = {DbName++"_reader", {reader_sup, start_link, [DbName]},
     Restart, Shutdown, Type, [reader_sup]},
   WriterChild = {DbName++"_writer", {writer_sup, start_link, [DbName, Args]},
     Restart, Shutdown, Type, [writer_sup]},
   ManagementChild = {DbName++"_man", {man_sup, start_link, [DbName]},
     Restart, Shutdown, Type, [man_sup]},
+  QueryChild = {DbName++"_query", {query_sup, start_link, [DbName]},
+    Restart, Shutdown, Type, [query_sup]},
 
   lager:info("Initializing database ~p", [DbName]),
-  {ok, {SupFlags, [ReaderChild, WriterChild, ManagementChild]}}.
+  {ok, {SupFlags, [ReaderChild, WriterChild, ManagementChild, QueryChild]}}.
 
 %%%===================================================================
 %%% Internal functions

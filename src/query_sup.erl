@@ -12,7 +12,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0]).
+-export([start_link/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -29,10 +29,8 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(start_link() ->
-  {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
-start_link() ->
-  supervisor:start_link({local, ?SERVER}, ?MODULE, []).
+start_link(DbName) ->
+  supervisor:start_link({local, format_name(DbName)}, ?MODULE, [DbName]).
 
 %%%===================================================================
 %%% Supervisor callbacks
@@ -48,14 +46,7 @@ start_link() ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(init(Args :: term()) ->
-  {ok, {SupFlags :: {RestartStrategy :: supervisor:strategy(),
-    MaxR :: non_neg_integer(), MaxT :: non_neg_integer()},
-    [ChildSpec :: supervisor:child_spec()]
-  }} |
-  ignore |
-  {error, Reason :: term()}).
-init([]) ->
+init([DbName]) ->
   RestartStrategy = one_for_one,
   MaxRestarts = 1000,
   MaxSecondsBetweenRestarts = 3600,
@@ -66,11 +57,16 @@ init([]) ->
   Shutdown = 2000,
   Type = worker,
 
-  AChild = {'AName', {'AModule', start_link, []},
-    Restart, Shutdown, Type, ['AModule']},
+  lager:info("DbName = ~p", [DbName]),
+
+  AChild = {query_server, {query_server, start_link, [DbName]},
+    Restart, Shutdown, Type, [query_server]},
 
   {ok, {SupFlags, [AChild]}}.
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+format_name(DbName) ->
+  list_to_atom(DbName++"_query_sup").

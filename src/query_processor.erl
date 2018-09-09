@@ -23,7 +23,8 @@ process_query([], CurrentResult, DbName) ->
 
 process_query([S | Statements], CurrentResult, DbName) ->
   {Command, Args} = parse_statement(S),
-  NewResult = process_command(Command, Args, CurrentResult, DbName),
+  lager:info("Command = ~p, Args = ~p", [Command, Args]),
+  NewResult = process_command(list_to_atom(Command), Args, CurrentResult, DbName),
   process_query(Statements, NewResult, DbName).
 
 parse_statement(Line) ->
@@ -36,15 +37,20 @@ parse_statement(Line) ->
 process_command(get_field, FieldNames, CurrentResult, DbName) ->
   process_field(FieldNames, DbName);
 
-process_command(filter_expression, Words, CurrentResult, DbName) ->
+process_command(filter, Words, CurrentResult, DbName) ->
   process_expression(Words, DbName).
 
-process_expression([], DbName) ->
-  [];
+process_expression([W | []], DbName) ->
+  CurrentExpressionResult = parse_query_term(W, DbName),
+  lager:info("LastPostings = ~p", [CurrentExpressionResult]),
+  MapFunction = fun(I = #doc_interval{ startPos = Start }) -> I#doc_interval{startPos = Start-1} end,
+  filter_expression(group_by(fun adbindexer:extract_key_from_record/1, CurrentExpressionResult), none, fun is_sequence/2, MapFunction);
 
 process_expression([W | Words], DbName) ->
   CurrentExpressionResult = parse_query_term(W, DbName),
+  lager:info("Postings = ~p", [CurrentExpressionResult]),
   TailExpressionResult = process_expression(Words, DbName),
+  lager:info("PostingsTail = ~p", [TailExpressionResult]),
   MapFunction = fun(I = #doc_interval{ startPos = Start }) -> I#doc_interval{startPos = Start-1} end,
   filter_expression(group_by(fun adbindexer:extract_key_from_record/1, CurrentExpressionResult), TailExpressionResult, fun is_sequence/2, MapFunction).
 
@@ -55,10 +61,17 @@ process_field([F | FieldNames], DbName) ->
 
 %% Result manipulation
 
-filter_expression(_, [], _, _) ->
-  [];
 
 filter_expression([], _, _, _) ->
+  [];
+
+filter_expression([{CurrentExpKey, CurrentExpPostings} | CurrentExps], none, FilterFunction, MapQueryResultFunction) ->
+  case filter_expression_positions(CurrentExpPostings, [], FilterFunction, MapQueryResultFunction) of
+    [] -> filter_expression(CurrentExps, [], FilterFunction, MapQueryResultFunction);
+    R -> [#query_result{ key = CurrentExpKey, positions = R } | filter_expression(CurrentExps, none, FilterFunction, MapQueryResultFunction)]
+  end;
+
+filter_expression(_, [], _, _) ->
   [];
 
 filter_expression([C = {CurrentExpKey, CurrentExpPostings} | CurrentExps], [T = #query_result{ key = TailExpKey, positions = TailExpPositions } | TailExps], FilterFunction, MapQueryResultFunction) ->
@@ -74,22 +87,34 @@ filter_expression([C = {CurrentExpKey, CurrentExpPostings} | CurrentExps], [T = 
 filter_expression_positions([], _, _, _) ->
   [];
 
-filter_expression_positions(_, [], _, _) ->
-  [];
+filter_expression_positions(CurrentPostings, [], FilterFunction, _) ->
+  Pred = fun(X) -> FilterFunction(none, X) end,
+  [convert_to_result(P) || P <- CurrentPostings, Pred(P)];
 
 filter_expression_positions([P | CurrentPostings], TailExpressionPositions, FilterFunction, MapQueryResultFunction) ->
   Pred = fun(X) -> FilterFunction(X, P) end,
   Map = [ MapQueryResultFunction(Interval) || Interval <- TailExpressionPositions, Pred(Interval) ],
-  Map ++ filter_expression_positions(CurrentPostings, TailExpressionPositions, FilterFunction, MapQueryResultFunction);
+  Map ++ filter_expression_positions(CurrentPostings, TailExpressionPositions, FilterFunction, MapQueryResultFunction).
 
-filter_expression_positions([_ | CurrentPostings], TailExpressionPositions, FilterFunction, MapQueryResultFunction) ->
-  filter_expression_positions(CurrentPostings, TailExpressionPositions, FilterFunction, MapQueryResultFunction).
+
+
+is_in_interval(none, Posting) ->
+  case Posting of
+      #posting_ext{} -> true;
+    _ -> false
+  end;
 
 is_in_interval(#doc_interval{ startPos = StartPos, endPos = EndPos }, #posting_ext{fieldStart = Start, fieldEnd = End}) ->
   (StartPos >= Start) and (EndPos =< End);
 
 is_in_interval(_, _) ->
   false.
+
+is_sequence(none, Posting) ->
+  case Posting of
+    #posting{} -> true;
+    _ -> false
+  end;
 
 is_sequence(#doc_interval{ startPos = StartPos }, #posting{docPos = DocPos}) ->
   DocPos == StartPos-1;
@@ -112,15 +137,21 @@ convert_to_posting(posting_ext, PropList) ->
   list_to_tuple([posting_ext|[proplists:get_value(X, PropList)
     || X <- record_info(fields, posting_ext)]]).
 
-group_by(F, L) -> lists:foldr(fun({K,V}, D) -> dict:append(K, V, D) end , dict:new(), [ {F(X), X} || X <- L ]).
+group_by(F, L) -> dict:to_list(lists:foldr(fun({K,V}, D) -> dict:append(K, V, D) end , dict:new(), [ {F(X), X} || X <- L ])).
 
 parse_query_term(Word, DbName) ->
   lists:map(fun convert_to_posting/1, indexer:query_term(DbName, Word)).
 
+convert_to_result(#posting{docPos = DocPos}) ->
+  #doc_interval{ startPos = DocPos, endPos = DocPos };
+
+convert_to_result(#posting_ext{fieldStart = Start, fieldEnd = End}) ->
+  #doc_interval{ startPos = Start, endPos = End }.
+
 % String manipulation functions
 
 get_lines(Query) ->
-  split(Query, "~n").
+  split(Query, "\n").
 
 split(Str, Separators) ->
   Stripped = string:strip(Str),
