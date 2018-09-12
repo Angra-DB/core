@@ -18,14 +18,13 @@ process_query(Query, DbName) ->
   Statements = get_lines(Query),
   process_query(Statements, [], DbName).
 
-process_query([], CurrentResult, DbName) ->
+process_query([], CurrentResult, _) ->
   CurrentResult;
 
 process_query([S | Statements], CurrentResult, DbName) ->
   {Command, Args} = parse_statement(S),
   lager:info("Command = ~p, Args = ~p", [Command, Args]),
-  NewResult = process_command(list_to_atom(Command), Args, CurrentResult, DbName),
-  process_query(Statements, NewResult, DbName).
+  process_command(list_to_atom(Command), Args, CurrentResult, DbName, Statements).
 
 parse_statement(Line) ->
   [Command | Args] = split(Line, " "),
@@ -34,15 +33,26 @@ parse_statement(Line) ->
 
 %% All process command functions should return a list of query_results
 
-process_command(filter_field, FieldNames, CurrentResult, DbName) ->
+process_command('and', _Args, CurrentResult, DbName, Statements) ->
+  RestResult = process_query(Statements, [], DbName),
+  intersect(RestResult, CurrentResult);
+
+process_command('or', _Args, CurrentResult, DbName, Statements) ->
+  RestResult = process_query(Statements, [], DbName),
+  lager:info("rest ~p and current ~p", [RestResult, CurrentResult]),
+  join(RestResult, CurrentResult);
+
+process_command(filter_field, FieldNames, CurrentResult, DbName, Statements) ->
   FieldResult = process_field(FieldNames, DbName),
-  case CurrentResult of
+  NewResult = case CurrentResult of
     [] -> filter_expression(FieldResult, none, fun is_in_interval/2, fun(I) -> I end);
     _ -> filter_expression(FieldResult, CurrentResult, fun is_in_interval/2, fun(I) -> I end)
-  end;
+  end,
+  process_query(Statements, NewResult, DbName);
 
-process_command(filter, Words, CurrentResult, DbName) ->
-  process_expression(Words, DbName).
+process_command(filter, Words, _, DbName, Statements) ->
+  NewResult = process_expression(Words, DbName),
+  process_query(Statements, NewResult, DbName).
 
 process_expression([W | Words], DbName) ->
   CurrentExpressionResult = parse_query_term(W, DbName),
@@ -180,6 +190,35 @@ convert_to_result(R) ->
 
 compare_groups({Key1, _}, {Key2, _}) ->
   Key1 =< Key2.
+
+intersect([], _) ->
+  [];
+
+intersect(_, []) ->
+  [];
+
+intersect([Q1 = #query_result{key = Key1} | L1], [Q2 = #query_result{key = Key2} | L2]) ->
+  case Key1 > Key2 of
+      true -> intersect([Q1 | L1], L2);
+      false when Key1 < Key2 -> intersect(L1, [Q2 | L2]);
+      false -> [#query_result{key = Key1, positions = join_positions(Q1, Q2)} | intersect(L1, L2)]
+  end.
+
+join([], L2) ->
+  L2;
+
+join(L1, []) ->
+  L1;
+
+join([Q1 = #query_result{key = Key1} | L1], [Q2 = #query_result{key = Key2} | L2]) ->
+  case Key1 > Key2 of
+    true -> [Q2 | join([Q1 | L1], L2)];
+    false when Key1 < Key2 -> [Q1 | join(L1, [Q2 | L2])];
+    false -> [#query_result{key = Key1, positions = join_positions(Q1, Q2)} | join(L1, L2)]
+  end.
+
+join_positions(#query_result{positions = P1}, #query_result{positions = P2}) ->
+  P1 ++ P2.
 
 % String manipulation functions
 
