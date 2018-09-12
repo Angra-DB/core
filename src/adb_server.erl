@@ -105,7 +105,9 @@ process_request(Socket, State, RawData) ->
       Tokens = preprocess(RawData),
       evaluate_request(Socket, State, Tokens)
     catch
-      _Class:Err -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Err]))
+      _Class:Err ->
+          gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Err])),
+          State
     end.
 
 evaluate_request(Socket, State, Tokens) ->
