@@ -10,6 +10,7 @@
 
 -module(adb_server).
 -include_lib("eunit/include/eunit.hrl").
+-include("gen_auth.hrl").
 
 -behavior(gen_server).
 
@@ -18,24 +19,22 @@
 %
 
 -export([ start_link/2
-	, get_count/0   % we can understand both get_count and stop as adm operations
-	, stop/0]).
+, get_count/0   % we can understand both get_count and stop as adm operations
+, stop/0]).
 
 % gen_server callbacks
 -export([ init/1
-	, handle_call/3
-	, handle_cast/2
-	, handle_info/2
-	, terminate/2
-	, code_change/3]).
-
+, handle_call/3
+, handle_cast/2
+, handle_info/2
+, terminate/2
+, code_change/3]).
 
 -export([split/1]).
 
-
 -define(SERVER, ?MODULE).      % declares a SERVER macro constant (?MODULE is the module's name)
 
--record(state, {lsock, persistence, parent, current_db = none}). % a record for keeping the server state
+-record(state, {lsock, persistence, parent, current_db = none, auth_scheme, auth_info = ?LoggedOut}). % a record for keeping the server state
 
 %%%======================================================
 %%% API
@@ -99,6 +98,10 @@ code_change(_OldVsn, State, _Extra) ->
 %   lookup <Id>
 %   update <Id> <Document>
 %   delete <Id>
+%   query_term
+%
+%   login <user_name> <<user_password>>
+%   logout
 %%% =========================================================
 process_request(Socket, State, RawData) ->
     try
@@ -109,7 +112,19 @@ process_request(Socket, State, RawData) ->
     end.
 
 evaluate_request(Socket, State, Tokens) ->
+    {Logged, _} = adbsecurity:is_logged_in(self(), Socket),
+
+    case Logged of
+        logged_in -> evaluate_authenticated_request(Socket, State, Tokens);
+        not_logged_in -> evaluate_not_authenticated_request(Socket, State, Tokens)
+    end.
+
+evaluate_authenticated_request(Socket, State, Tokens) ->
     case Tokens of
+        {"login", _, _} ->
+            gen_tcp:send(Socket, io_lib:fwrite("You are already logged in. In order to log in with a different account, use the command 'logout' first.~n"));
+        {"logout", _} ->
+            adbsecurity:logout(self(), Socket);
         {"connect", Database} ->
             connect(Socket, State, Database);
         {"create_db", Database} ->
@@ -119,6 +134,25 @@ evaluate_request(Socket, State, Tokens) ->
             persist(Socket, State#state.persistence, State#state.current_db, Tokens),
             State
     end.
+
+evaluate_not_authenticated_request(Socket, State, Tokens) ->
+    case Tokens of
+        {"login", Username, Password} ->
+            adbsecurity:login(self(), Socket);
+        {"logout", _} ->
+            gen_tcp:send(Socket, io_lib:fwrite("You are already logged out.~n"));
+        _ ->
+            gen_tcp:send(Socket, io_lib:fwrite("You are not logged in yet. To do so, use the command 'login [user_name] [<password>]'~n"))
+    end.
+
+
+%
+% logs in using a given auth scheme (default: adbsecurity)
+%
+login(Socket, State, Username) ->
+    NewState = State#state{ auth_info = adb_auth:login(Username) },
+    gen_tcp:send(Socket, io_lib:fwrite("Logged in as ~p...~n", [Username])),
+    NewState.
 
 %
 % connects to an existing database.
@@ -156,11 +190,12 @@ preprocess(RawData) ->
       []         -> throw(invalid_command);
       ["update"] -> {Command, split(Args)};
 			["save_key"] -> {Command, split(Args)};
+			["login"] -> {Command, split(Args)};
       _          -> {Command, Args}
     end.
 
 filter_command(Command) ->
-    ValidCommands = ["save", "save_key", "lookup", "update", "delete", "connect", "create_db", "delete_db", "query_term"],
+    ValidCommands = ["save", "save_key", "lookup", "update", "delete", "connect", "create_db", "delete_db", "query_term", "login", "logout"],
     [X || X <- ValidCommands, X =:= Command].
 
 split(Str) ->

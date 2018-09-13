@@ -30,8 +30,6 @@ start_child() ->
     supervisor:start_child(?SERVER, []).
 
 init([LSock, Persistence]) ->
-  lager:info("Initializing server_sup and adbsecurity modules.", []),
-  adbsecurity:init(),
   Server = {adb_server, {adb_server, start_link, [LSock, Persistence]}, % {Id, Start, Restart, ... }
       temporary, brutal_kill, worker, [adb_server]},
   RestartStrategy = {simple_one_for_one, 1000, 3600},  % {How, Max, Within} ... Max restarts within a period
