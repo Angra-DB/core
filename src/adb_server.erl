@@ -18,7 +18,7 @@
 % API functions
 %
 
--export([ start_link/2
+-export([ start_link/3
 , get_count/0   % we can understand both get_count and stop as adm operations
 , stop/0]).
 
@@ -34,7 +34,9 @@
 
 -define(SERVER, ?MODULE).      % declares a SERVER macro constant (?MODULE is the module's name)
 
--record(state, {lsock, persistence, parent, current_db = none, auth_scheme, auth_info = ?LoggedOut}). % a record for keeping the server state
+% persistence (the persistence setup and its configurations), auth_setup (the authentication/authorization scheme and its configurations),
+% auth_status (the authentication/authorization current status of this specific connection)
+-record(state, {lsock, persistence, parent, current_db = none, auth_setup, auth_status = ?LoggedOut}). % a record for keeping the server state
 
 %%%======================================================
 %%% API
@@ -45,8 +47,8 @@
 %%% is a bit trick.
 %%%======================================================
 
-start_link(LSock, Persistence) ->
-    gen_server:start_link(?MODULE, [LSock, Persistence], []).
+start_link(LSock, Persistence, Auth) ->
+    gen_server:start_link(?MODULE, [LSock, Persistence, Auth], []).
 
 get_count() ->
     gen_server:call(?SERVER, get_count).
@@ -58,8 +60,8 @@ stop() ->
 %%% gen_server callbacks
 %%%===========================================
 
-init([LSock, Persistence]) ->
-    {ok, #state{lsock = LSock, persistence = Persistence}, 0}.
+init([LSock, Persistence, Auth]) ->
+    {ok, #state{lsock = LSock, persistence = Persistence, auth_setup = Auth}, 0}.
 
 handle_call(Msg, _From, State) ->
     {reply, {ok, Msg}, State}.
@@ -138,7 +140,7 @@ evaluate_authenticated_request(Socket, State, Tokens) ->
 evaluate_not_authenticated_request(Socket, State, Tokens) ->
     case Tokens of
         {"login", Username, Password} ->
-            adbsecurity:login(self(), Socket);
+            login(Socket, State, Username, Password);
         {"logout", _} ->
             gen_tcp:send(Socket, io_lib:fwrite("You are already logged out.~n"));
         _ ->
@@ -147,10 +149,11 @@ evaluate_not_authenticated_request(Socket, State, Tokens) ->
 
 
 %
-% logs in using a given auth scheme (default: adbsecurity)
+% logs in using a given auth scheme (default: adb_auth)
 %
-login(Socket, State, Username) ->
-    NewState = State#state{ auth_info = adb_auth:login(Username) },
+login(Socket, State, Username, Password) ->
+    {Auth_scheme, _Settings} = State#state.auth_setup,
+    NewState = State#state{ auth_status = gen_auth:process_request(login, Auth_scheme, Username, Password, none)},
     gen_tcp:send(Socket, io_lib:fwrite("Logged in as ~p...~n", [Username])),
     NewState.
 

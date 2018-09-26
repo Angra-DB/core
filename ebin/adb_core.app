@@ -5,8 +5,12 @@
  {registered, [adb_sup]},
  {applications, [kernel, stdlib, lager]},
  {mod, {adb_app, 
-        % {persistence, {{name, ets | hanoidb | adbtree }, [Args]}
-        [{persistence, {{name, adbtree}, [{max_index_size, 50000000}]}}]
+        % {persistence, {{name, ets | hanoidb | adbtree }, [Args]}}
+        % {auth, {{name, adb_auth | (soon, there will be others...) }, [Args (none until then]}}
+        [
+          {persistence, {{name, adbtree}, [{max_index_size, 50000000}]}},
+          {auth, {{name, adb_auth}, []}}
+        ]
        }
  }
 ]}.

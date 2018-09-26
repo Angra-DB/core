@@ -12,14 +12,15 @@
 	is_logged_in/1
 ]).
 
-% verifies the response to the challenge, and returns the filled authentication_info record if everything is ok
+% verifies the response to the challenge, and returns the filled {?LoggedIn, #authentication_info} tuple if everything is ok.
+% otherwise, it returns only {?LoggedOut, none}
 login(Username, Password) ->
 	{?LoggedIn, #authentication_info{username = Username}}.
 
-logout(Auth_info) ->
+logout(Auth_status) ->
 	?LoggedOut.
 
-is_logged_in(Auth_info) ->
+is_logged_in(Auth_status) ->
 	?LoggedIn.
 
 %%is_logged_in(Pid, Socket) ->

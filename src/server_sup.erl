@@ -24,13 +24,14 @@ start_link(LSock) ->
 
 start_link(LSock, Args) ->
     Persistence = setup_persistence(Args),
-    supervisor:start_link({local, ?SERVER}, ?MODULE, [LSock, Persistence]).
+    Auth = setup_auth(Args),
+    supervisor:start_link({local, ?SERVER}, ?MODULE, [LSock, Persistence, Auth]).
 
 start_child() ->
     supervisor:start_child(?SERVER, []).
 
-init([LSock, Persistence]) ->
-  Server = {adb_server, {adb_server, start_link, [LSock, Persistence]}, % {Id, Start, Restart, ... }
+init([LSock, Persistence, Auth]) ->
+  Server = {adb_server, {adb_server, start_link, [LSock, Persistence, Auth]}, % {Id, Start, Restart, ... }
       temporary, brutal_kill, worker, [adb_server]},
   RestartStrategy = {simple_one_for_one, 1000, 3600},  % {How, Max, Within} ... Max restarts within a period
   {ok, {RestartStrategy, [Server]}}.
@@ -45,6 +46,14 @@ setup_persistence(Args) ->
         lager:info("Starting ets..."),
         {ets_persistence, Settings};
       {{name, _}, Settings } ->
-        lager:info("starting ADBtree"),
+        lager:info("starting ADBtree..."),
         {adbtree_persistence, Settings}
     end.
+
+setup_auth(Args) ->
+  lager:info("Setting up the auth module.", []),
+  case proplists:get_value(auth, Args) of
+    {{name, _}, Settings } ->
+      lager:info("starting ADB Auth..."),
+      {adb_auth, Settings}
+  end.
