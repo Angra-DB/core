@@ -36,7 +36,7 @@
 
 % persistence (the persistence setup and its configurations), auth_setup (the authentication/authorization scheme and its configurations),
 % auth_status (the authentication/authorization current status of this specific connection)
--record(state, {lsock, persistence, parent, current_db = none, auth_setup, auth_status = ?LoggedOut}). % a record for keeping the server state
+-record(state, {lsock, persistence, parent, current_db = none, auth_setup, auth_status = {?LoggedOut, none}}). % a record for keeping the server state
 
 %%%======================================================
 %%% API
@@ -114,19 +114,21 @@ process_request(Socket, State, RawData) ->
     end.
 
 evaluate_request(Socket, State, Tokens) ->
-    {Logged, _} = adbsecurity:is_logged_in(self(), Socket),
+    {Logged, _UserAuthStatus} = State#state.auth_status,
 
     case Logged of
-        logged_in -> evaluate_authenticated_request(Socket, State, Tokens);
-        not_logged_in -> evaluate_not_authenticated_request(Socket, State, Tokens)
+        ?LoggedIn -> evaluate_authenticated_request(Socket, State, Tokens);
+        ?LoggedOut -> evaluate_not_authenticated_request(Socket, State, Tokens)
     end.
 
 evaluate_authenticated_request(Socket, State, Tokens) ->
+    lager:debug("Evaluating authenticated request... Tokens: ~p", [Tokens]),
     case Tokens of
-        {"login", _, _} ->
-            gen_tcp:send(Socket, io_lib:fwrite("You are already logged in. In order to log in with a different account, use the command 'logout' first.~n"));
+        {"login", _} ->
+            gen_tcp:send(Socket, "You are already logged in. In order to log in with a different account, use the command 'logout' first.~n"),
+            State;
         {"logout", _} ->
-            adbsecurity:logout(self(), Socket);
+            logout(Socket, State);
         {"connect", Database} ->
             connect(Socket, State, Database);
         {"create_db", Database} ->
@@ -138,13 +140,16 @@ evaluate_authenticated_request(Socket, State, Tokens) ->
     end.
 
 evaluate_not_authenticated_request(Socket, State, Tokens) ->
+    lager:debug("Evaluating non-authenticated request... Tokens: ~p", [Tokens]),
     case Tokens of
-        {"login", Username, Password} ->
+        {"login", {Username, Password}} ->
             login(Socket, State, Username, Password);
         {"logout", _} ->
-            gen_tcp:send(Socket, io_lib:fwrite("You are already logged out.~n"));
+            gen_tcp:send(Socket, io_lib:fwrite("You are already logged out.~n", [])),
+            State;
         _ ->
-            gen_tcp:send(Socket, io_lib:fwrite("You are not logged in yet. To do so, use the command 'login [user_name] [<password>]'~n"))
+            gen_tcp:send(Socket, io_lib:fwrite("You are not logged in yet. To do so, use the command 'login [user_name] [password]'~n", [])),
+            State
     end.
 
 
@@ -153,8 +158,22 @@ evaluate_not_authenticated_request(Socket, State, Tokens) ->
 %
 login(Socket, State, Username, Password) ->
     {Auth_scheme, _Settings} = State#state.auth_setup,
+    lager:debug("User ~p trying to log in... Auth Scheme: ~p ~n", [Username, Auth_scheme]),
     NewState = State#state{ auth_status = gen_auth:process_request(login, Auth_scheme, Username, Password, none)},
+    {_, AuthInfo} = NewState#state.auth_status,
+    lager:debug("User ~p logged in.", [AuthInfo#authentication_info.username]),
     gen_tcp:send(Socket, io_lib:fwrite("Logged in as ~p...~n", [Username])),
+    NewState.
+
+%
+% logs out using a given auth scheme (default: adb_auth)
+%
+logout(Socket, State) ->
+    {Auth_scheme, _Settings} = State#state.auth_setup,
+    NewState = State#state{ auth_status = gen_auth:process_request(logout, Auth_scheme, none, none, State#state.auth_status)},
+    {_, AuthInfo} = State#state.auth_status,
+    lager:debug("User ~p logged out.", [AuthInfo#authentication_info.username]),
+    gen_tcp:send(Socket, io_lib:fwrite("User logged out...~n", [])),
     NewState.
 
 %

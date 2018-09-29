@@ -8,8 +8,7 @@
 -export([
 %%	init_auth_table/1,
 	login/2,
-	logout/1,
-	is_logged_in/1
+	logout/1
 ]).
 
 % verifies the response to the challenge, and returns the filled {?LoggedIn, #authentication_info} tuple if everything is ok.
@@ -17,11 +16,11 @@
 login(Username, Password) ->
 	{?LoggedIn, #authentication_info{username = Username}}.
 
-logout(Auth_status) ->
-	?LoggedOut.
+logout(_Auth_status) ->
+	{?LoggedOut, none}.
 
-is_logged_in(Auth_status) ->
-	?LoggedIn.
+%%is_logged_in(Auth_status) ->
+%%	?LoggedIn.
 
 %%is_logged_in(Pid, Socket) ->
 %%	case ets:lookup(pid_to_table_name(Pid), Socket) of

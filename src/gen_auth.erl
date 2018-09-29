@@ -5,7 +5,7 @@
 -export([start/1, process_request/5]).
 
 behaviour_info(callbacks) ->
-  [{login, 2}, {logout, 1}, {is_logged_in, 1}].
+  [{login, 2}, {logout, 1}].
 
 start(_Auth_setup) ->  ok.
 
@@ -14,10 +14,6 @@ start(_Auth_setup) ->  ok.
 process_request(login, Auth_scheme, Username, Password, _) ->
     Auth_scheme:login(Username, Password);
 
-% logout/1 is supposed to process everything it needs to, and then return ?LoggedOut
+% logout/1 is supposed to process everything it needs to, and then return {?LoggedOut, none}
 process_request(logout, Auth_scheme, _,_, Auth_status) ->
-    Auth_scheme:logout(Auth_status);
-
-% is_logged_in/1 needs to return either ?LoggedIn or ?LoggedOut
-process_request(is_logged_in, Auth_scheme, _,_, Auth_status) ->
-    Auth_scheme:is_logged_in(Auth_status).
+    Auth_scheme:logout(Auth_status).

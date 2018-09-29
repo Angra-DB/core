@@ -9,7 +9,7 @@
 
 -behavior(application). 
 
--export([start/2, stop/1, kickoff/1]).
+-export([start/2, stop/1, kickoff/1, kickoff/2]).
 
 -define(DEFAULT_PORT, 1234). 
 
@@ -22,9 +22,24 @@ kickoff(core) ->
     application:start(adb_core);
 kickoff(all) ->
     lager:start(),
+    lager:info("Lager's console log level set to 'info'..."),
     application:start(adb_core);
 kickoff(_) ->
     invalid_argument.
+
+kickoff(all, LogLevel)->
+  lager:start(),
+
+  % setting up the log level...
+  ValidLogLevels = [debug, info, notice, warning, error, critical, alert, emergency],
+  case [X || X <- ValidLogLevels, X =:= LogLevel] of
+    []  -> lager:info("'~p' is not an valid log level. Setting Lager's console log level to 'info'...", [LogLevel]);
+    _   ->
+      lager:info("Setting Lager's console log level to '~p'...", [LogLevel]),
+      lager:set_loglevel(lager_console_backend, LogLevel)
+  end,
+
+  application:start(adb_core).
 
 start(_Type, _StartArgs) ->
 
