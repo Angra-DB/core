@@ -26,31 +26,18 @@ start_child() ->
     supervisor:start_child(?SERVER, []).
 
 init(Args) ->
-    Persistence = setup_persistence(Args),
-    VNodes = proplists:get_value(vnodes, Args),
-    CoreNames = [list_to_atom(atom_to_list(adb_core_) ++ integer_to_list(X)) || X <- lists:seq(1, VNodes)],
-    Cores = [#{id       => Name, 
-               start    => {adb_core, start_link, [Persistence, Name]},
-               restart  => temporary, 
-               shutdown => brutal_kill, 
-               type     => worker, 
-               modules  => [adb_core]} || Name <- CoreNames],
     DistSup = #{id       => adb_dist_sup, 
                 start    => {adb_dist_sup, start_link, [Args]}, 
                 restart  => permanent, 
                 shutdown => infinity, 
                 type     => supervisor, 
                 modules  => [adb_dist_sup]},
+    VNodeSup = #{id       => adb_vnode_sup,
+                 start    => {adb_vnode_sup, start_link, [Args]},
+                 restart  => permanent,
+                 shutdown => infinity,
+                 type     => supervisor,
+                 modules  => [adb_vnode_sup]},
     RestartStrategy = {one_for_one, 1000, 3600},
-    {ok, {RestartStrategy, Cores ++ [DistSup]}}.
+    {ok, {RestartStrategy, [DistSup, VNodeSup]}}.
 
-setup_persistence(Args) ->
-    lager:info("Setting up the persistence module.", []),
-    case proplists:get_value(persistence, Args) of
-	hanoidb -> lager:info("Starting HanoiDB..."),
-               hanoidb_persistence;		
-    ets     -> lager:info("Starting ETS..."),
-		       ets_persistence;
-	_       -> lager:info("Starting ADBTree..."),
-		       adbtree_persistence
-    end.

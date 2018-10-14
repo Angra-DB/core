@@ -27,6 +27,6 @@ start_child() ->
 
 init(LSock) ->
     Server = {adb_server, {adb_server, start_link, [LSock]}, % {Id, Start, Restart, ... }
-	      temporary, brutal_kill, worker, [adb_server]},
+	      permanent, brutal_kill, worker, [adb_server]},
     RestartStrategy = {one_for_one, 1000, 3600},  % {How, Max, Within} ... Max restarts within a period
     {ok, {RestartStrategy, [Server]}}.

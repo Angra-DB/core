@@ -6,10 +6,7 @@
 % @end
 % ------------------------------------------------
 
-
-
 -module(adb_server).
--include_lib("eunit/include/eunit.hrl").
 
 -behavior(gen_server).
 
@@ -29,13 +26,22 @@
 	, terminate/2
 	, code_change/3]).
 
-
--export([split/1]).
-
+-export([split_next_token/1]).
 
 -define(SERVER, ?MODULE).      % declares a SERVER macro constant (?MODULE is the module's name)
 
--record(state, {lsock, persistence, parent, current_db = none}). % a record for keeping the server state
+%% Declares all commands available.
+-define(SAVE_CMD, "save").
+-define(SAVE_KEY_CMD, "save_key").
+-define(LOOKUP_CMD, "lookup").
+-define(UPDATE_CMD, "update").
+-define(DELETE_CMD, "delete").
+-define(CONNECT_CMD, "connect").
+-define(CREATE_DB_CMD, "create_db").
+-define(DELETE_DB_CMD, "delete_db").
+-define(VALID_COMMANDS, [?SAVE_CMD, ?SAVE_KEY_CMD, ?LOOKUP_CMD, ?UPDATE_CMD, ?DELETE_CMD, ?CONNECT_CMD, ?CREATE_DB_CMD, ?DELETE_DB_CMD]).
+
+-record(state, {lsock, parent, current_db = none}). % a record for keeping the server state
 
 %%%======================================================
 %%% API
@@ -47,7 +53,7 @@
 %%%======================================================
 
 start_link(LSock) ->
-    gen_server:start_link(?MODULE, [LSock, adbtree], []).
+    gen_server:start_link(?MODULE, [LSock], []).
 
 get_count() ->
     gen_server:call(?SERVER, get_count).
@@ -59,8 +65,8 @@ stop() ->
 %%% gen_server callbacks
 %%%===========================================
 
-init([LSock, Persistence]) ->
-    {ok, #state{lsock = LSock, persistence = Persistence}, 0}.
+init([LSock]) ->
+    {ok, #state{lsock = LSock}, 0}.
 
 handle_call(Msg, _From, State) ->
     {reply, {ok, Msg}, State}.
@@ -102,7 +108,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%% =========================================================
 process_request(Socket, State, RawData) ->
     try
-      Tokens = preprocess(RawData),
+      Tokens = preprocess_input(RawData),
       evaluate_request(Socket, State, Tokens)
     catch
       _Class:Err -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Err]))
@@ -110,73 +116,48 @@ process_request(Socket, State, RawData) ->
 
 evaluate_request(Socket, State, Tokens) ->
     case Tokens of
-        {"connect", Database}   -> connect(Socket, State, Database);
-        {"create_db", Database} -> persist(Socket, State#state.persistence, Database, Tokens),
-                                   State;
-        _                       -> persist(Socket, State#state.persistence, State#state.current_db, Tokens),
-                                   State
+        {invalid, Command}         -> gen_tcp:send(Socket, io_lib:fwrite("The provided command '~p' is invalid.~n", [Command])),
+                                      State;
+        {?CONNECT_CMD, Database}   -> connect(Socket, State, Database);
+        {?CREATE_DB_CMD, Database} -> create_db(Socket, Database),
+                                      State;
+        _                          -> persist(Socket, State#state.current_db, Tokens),
+                                      State
     end.
 
 %
 % connects to an existing database.
 %
 connect(Socket, State, Database) ->
-    Persistence = State#state.persistence,
-    Res = case forward(process_request, [connect, Database, Database, Persistence]) of
-        [First|_] -> First;
-        One       -> One
-    end,
-    case Res of
-        db_does_not_exist -> gen_tcp:send(Socket, io_lib:fwrite("Database ~p does not exist~n", [Database])),
-                             State;
-        ok                -> NewState = State#state{ current_db = list_to_atom(Database) },
-                             gen_tcp:send(Socket, io_lib:fwrite("Database set to ~p...~n", [Database])),
-                             NewState
+    case adb_dist_server:forward_request(connect, Database) of
+        {error, db_does_not_exist} -> gen_tcp:send(Socket, io_lib:fwrite("Database ~p does not exist.~n", [Database])),
+                                      State;
+        {ok, _}                    -> NewState = State#state{ current_db = Database },
+                                      gen_tcp:send(Socket, io_lib:fwrite("Database set to ~p...~n", [Database])),
+                                      NewState
     end.
 
+create_db(Socket, Database) ->
+    Response = adb_dist_server:forward_request(create_db, Database),
+    gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Response])).
 
-persist(Socket, _, none, _) ->
+persist(Socket, none, _) ->
     gen_tcp:send(Socket, io_lib:fwrite("Database not set. Please use the 'use' command.~n", []));
-persist(Socket, Persistence, CurrentDB, {Command, Args}) ->
-    Res = forward(process_request, [list_to_atom(Command), CurrentDB, Args, Persistence]),
-    gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Res])).
+persist(Socket, CurrentDB, {Command, Args}) ->
+    Response = adb_dist_server:forward_request(list_to_atom(Command), {CurrentDB, Args}),
+    gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Response])).
 
-preprocess(RawData) ->
-    Reverse = lists:reverse(RawData),
-    Pred = fun(C) -> (C == $\n) or (C == $\r) end,
-    Trim = lists:reverse(lists:dropwhile(Pred, Reverse)),
-    {Command, Args} = split(Trim),
-    case filter_command(Command) of
-        []           -> throw(invalid_command);
-        ["update"]   -> {Command, split(Args)};
-        ["save_key"] -> {Command, split(Args)};
-        _            -> {Command, Args}
+preprocess_input(RawData) ->
+    ChompedData = string:chomp(RawData),
+    {Command, Args} = split_next_token(ChompedData),
+    case {lists:member(Command, ?VALID_COMMANDS), Command} of
+        {false, _}         -> {invalid, Command};
+        {_, ?UPDATE_CMD}   -> {Command, split_next_token(Args)};
+        {_, ?SAVE_KEY_CMD} -> {Command, split_next_token(Args)};
+        {_, _}             -> {Command, Args}
     end.
 
-filter_command(Command) ->
-    ValidCommands = ["save", "save_key", "lookup", "update", "delete", "connect", "create_db", "delete_db"],
-    [X || X <- ValidCommands, X =:= Command].
-
-split(Str) ->
-    Stripped = string:strip(Str),
-    Pred = fun(A) -> A =/= $  end,
-    {Command, Args} = lists:splitwith(Pred, Stripped),
-    {Command, string:strip(Args)}.
-
-
-forward(process_request, Args) when node() == nonode@nohost ->
-    case gen_server:call(adb_core, {process_request, Args}) of
-        {ok, _Res} -> ok;
-        Res        -> Res
-    end;
-forward(process_request, Args) ->
-    case nodes() of
-        [] -> no_core_node_found;
-        _  -> rpc_multicall(nodes(), adb_core, receive_request, [Args])
-    end.
-
-rpc_multicall([], _, _, _) ->
-    [];
-rpc_multicall([Node|Tail], Module, Func, Args) ->
-    Result = rpc:call(Node, Module, Func, Args),
-    lists:append([Result], rpc_multicall(Tail, Module, Func, Args)).
+split_next_token(Str) ->
+    Trim = string:trim(Str, both, " "),
+    [Head|Tail] = string:split(Trim, " "),
+    {Head, string:trim(Tail)}.

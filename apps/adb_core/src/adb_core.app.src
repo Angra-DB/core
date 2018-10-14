@@ -4,14 +4,19 @@
  {modules, []},
  {registered, [adb_sup]},
  {applications, [kernel, stdlib, lager]},
+ {env, [
+    {"ADB_PORT", 1234},                  %% Default port on which the server will listen at this node.
+    {"ADB_HOST", "127.0.0.1"}            %% Default hostname on which this node will be identified on dist mode.
+ ]},
  {mod,
     {adb_app, [
-        %% List of host that the adb_core will try to find the server
-        {port, 1234},             %% Port which the server will listen
-        {persistence, adbtree},   %% {persistence, ets | hanoidb | adbtree}
-        {distribution, {long, '127.0.0.1'}},     %% {distribution, {long, Host::atom()} | mono}
-        {replication, 3},         %% Number of copies
-        {vnodes, 3}               %% Number of vnodes
+        {persistence, adbtree},          %% {persistence, ets | hanoidb | adbtree}
+        {distribution, dist},            %% {distribution, dist | mono}
+        {partition, {consistent, md5}},  %% {partition, full | {consistent, <hash_func>}}
+        {replication, 3},                %% Number of copies
+        {write_quorum, 2},               %% Number of successful writes needed to consider the operation valid.
+        {read_quorum, 2},                %% Number of successful reads needed to consider the operation valid.
+        {vnodes, 3}                      %% Number of vnodes
     ]}
  }
 ]}.

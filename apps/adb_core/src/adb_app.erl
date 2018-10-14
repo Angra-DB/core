@@ -16,17 +16,18 @@
 
 start(_Type, StartArgs) ->
 
-    Target = case os:getenv("Access") of
-        false  -> none; 
+    Target = case os:getenv("ADB_ACCESS", none) of
+        none   -> none; 
         Access -> lager:info("Trying to connect to node: ~s ~n", [Access]),
                   list_to_atom(Access)
     end,
 
     lager:info("Setting up the distribution configuration. ~n"),
-    {Dist, Host} = proplists:get_value(distribution, StartArgs),
-    {ok, Config} = case search_for_node(Dist, Target) of
-        {notfound}          -> {ok, StartArgs ++ [{server, none}]};
-        {ok, RemoteConfig}  -> {ok, RemoteConfig}
+    Dist = proplists:get_value(distribution, StartArgs),
+    {ok, Host} = adb_utils:get_env("ADB_HOST"),
+    Config = case search_for_node(Dist, Target) of
+        {ok, RemoteConfig} -> RemoteConfig;
+        _                  -> StartArgs ++ [{server, none}]
     end,
     {ok, _Mode} = configure_dist({Dist, Host}, Target),
 
@@ -37,10 +38,11 @@ start(_Type, StartArgs) ->
         Other       -> error_logger:error_msg(" error: ~s", [Other]),
                        {error, Other}
     end,
-    case gen_server:call(adb_dist, {init_server_or_acknowledge, []}) of
+    case gen_server:call(adb_dist_server, {init_server_or_acknowledge, []}) of
         {ok, init}                  -> lager:info("Server initilized on this node: ~p. ~n", [node()]);
         {ok, {acknowledge, Remote}} -> lager:info("Acknowledge to remote server: ~p. ~n", [Remote])
     end,
+    try_enter_ring(),
     Res.
 
 stop(_State) ->
@@ -50,40 +52,45 @@ stop(_State) ->
 %% Internal functions
 %%==============================================================================
 
-search_for_node(long, none) ->
-    {notfound};
-search_for_node(long, Target) ->
+search_for_node(dist, none) ->
+    none;
+search_for_node(dist, Target) ->
     start_node(),
-    Result = case gen_server:call({adb_dist, Target}, {node_up, []}) of
-        {ok, State} -> lager:info("Successfully contacted to ~s. ~n", [Target]),
-                       {ok, State};
-        _           -> lager:warning("Node not found.~n"),
-                       {notfound}
-    end,
-    stop_node(),
-    Result;
+    try
+        Result = case gen_server:call({adb_dist_server, Target}, {node_up, []}) of
+            {ok, State} -> lager:info("Successfully contacted to ~s. ~n", [Target]),
+                        {ok, State};
+            _        -> lager:warning("Node not found.~n"),
+                        {error, notfound}
+        end,
+        stop_node(),
+        Result
+    catch
+        _Class:Err -> lager:warning("Could not contact node: ~p.~n", [Err]),
+                      stop_node(),
+                      {error, notfound}
+    end;
 search_for_node(mono, _) ->
-    {notfound}.
+    none.
 
-configure_dist({long, Host}, none) when is_atom(Host) ->
-    Name = list_to_atom(adb_utils:gen_name() ++ "@" ++ atom_to_list(Host)),
+configure_dist({dist, Host}, none) ->
+    Name = list_to_atom(adb_utils:gen_name() ++ "@" ++ Host),
+    case net_kernel:start([Name, longnames]) of
+        {ok, _Pid}       -> lager:info("Application starting on longname distributed mode."),
+                            {ok, dist};
+        {error, _Reason} -> lager:warning("Application failed to start on distributed mode: TIP: Verify if the EPMD process is running!"),
+                            lager:info("Application starting on monolithic mode."),
+                            {ok, mono}
+    end;
+configure_dist({dist, Host}, RemoteNode) ->
+    Name = list_to_atom(adb_utils:gen_name() ++ "@" ++ Host),
     case net_kernel:start([Name, longnames]) of
         {ok, _Pid}      -> lager:info("Application starting on longname distributed mode."),
-                           {ok, long};
+                           net_kernel:connect_node(RemoteNode),
+                           {ok, dist};
         {error, Reason} -> lager:warning("Application failed to start on distributed mode: ~p.", [Reason]),
                            lager:info("Application starting on monolithic mode."),
-                           {error, Reason}
-    end;
-configure_dist({long, Host}, RemoteNode) when is_atom(Host) ->
-    Name = list_to_atom(adb_utils:gen_name() ++ "@" ++ atom_to_list(Host)),
-    case net_kernel:start([Name, longnames]) of
-        {ok, _Pid}      -> lager:info("Application starting on longname distributed mode."),                       
-                           true = net_kernel:connect_node(RemoteNode),
-                           lager:info("Successfully connected to ~s. ~n", [RemoteNode]),
-                           {ok, long};
-        {error, Reason} -> lager:warning("Application failed to start on distributed mode: ~p.", [Reason]),
-                           lager:info("Application starting on monolithic mode."),
-                           {error, Reason}
+                           {ok, mono}
     end;
 configure_dist(mono, none) ->
     lager:info("Application starting on monolithic mode."),
@@ -92,7 +99,8 @@ configure_dist(_, _) ->
     {error, "Invalid argument"}.
 
 start_node() ->
-    TempName = list_to_atom("temp" ++ adb_utils:gen_name() ++ "@127.0.0.1"),
+    {ok, Host} = adb_utils:get_env("ADB_HOST"),
+    TempName = list_to_atom("temp" ++ adb_utils:gen_name() ++ "@" ++ Host),
     case node() of
         nonode@nohost -> net_kernel:start([TempName, longnames]),
                          TempName;
@@ -102,5 +110,6 @@ start_node() ->
 stop_node() ->
     ok = net_kernel:stop().
 
-
-
+try_enter_ring()->
+    RingId = adb_dist_server:get_ring_id(),
+    lager:info("Ring ID defined as '~p'.~n", [RingId]).
