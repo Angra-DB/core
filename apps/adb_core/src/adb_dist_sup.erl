@@ -19,6 +19,7 @@ start_child(ChildSpec) ->
     supervisor:start_child(?MODULE, ChildSpec).
 
 init(Args) ->
+    Dist = proplists:get_value(distribution, Args),
     GossipServer = #{id       => adb_gossip_server,
                      start    => {adb_gossip_server, start_link, []},
                      restart  => temporary,
@@ -32,4 +33,15 @@ init(Args) ->
                    type     => worker, 
                    modules  => [adb_dist_server]},
     RestartStrategy = {one_for_one, 1000, 3600},
-    {ok, {RestartStrategy, [GossipServer, DistServer]}}.
+    case Dist of
+        dist ->
+            MapReduceSup = #{id => adb_mr_sup, 
+            start    => {adb_mr_sup, start_link, []}, 
+            restart  => permanent, 
+            shutdown => infinity, 
+            type     => supervisor, 
+            modules  => [adb_mr_sup]},
+            {ok, {RestartStrategy, [GossipServer, DistServer, MapReduceSup]}};
+        _ ->
+            {ok, {RestartStrategy, [GossipServer, DistServer]}}
+    end.
