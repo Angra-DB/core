@@ -26,19 +26,35 @@ connect(Database) ->
         {failed, Response}  -> {error, Response}
     end.
 
-save(_Database, {_Key, _HashFunc}, _Doc) ->
-    save.
+save(Database, {Key, HashFunc}, Doc) ->
+    HashKey = crypto:hash(HashFunc, Key),
+    {Target, VNode} = get_target_node(HashKey),
+    Request = {process_request, {VNode, {save, Database, {crypto:bytes_to_integer(HashKey), Doc}}}},
+    gen_server:call({adb_vnode_server, Target}, Request).
 
-lookup(_Database, {_Key, _HashFunc}) ->
-    lookup.
+lookup(Database, {Key, HashFunc}) ->
+    HashKey = crypto:hash(HashFunc, Key),
+    {Target, VNode} = get_target_node(HashKey),
+    Request = {process_request, {VNode, {lookup, Database, crypto:bytes_to_integer(HashKey)}}},
+    gen_server:call({adb_vnode_server, Target}, Request).
 
-update(_Database, {_Key, _HashFunc}, _Doc) ->
-    update.
+update(Database, {Key, HashFunc}, Doc) ->
+    HashKey = crypto:hash(HashFunc, Key),
+    {Target, VNode} = get_target_node(HashKey),
+    Request = {process_request, {VNode, {update, Database, {crypto:bytes_to_integer(HashKey), Doc}}}},
+    gen_server:call({adb_vnode_server, Target}, Request).
 
-delete(_Database, {_Key, _HashFunc}) ->
-    delete.
+delete(Database, {Key, HashFunc}) ->
+    HashKey = crypto:hash(HashFunc, Key),
+    {Target, VNode} = get_target_node(HashKey),
+    Request = {process_request, {VNode, {delete, Database, crypto:bytes_to_integer(HashKey)}}},
+    gen_server:call({adb_vnode_server, Target}, Request).
 
 %%==============================================================================
 %% Internal functions
 %%==============================================================================
+
+get_target_node(_HashKey) ->
+    %% TODO
+    ok.
 

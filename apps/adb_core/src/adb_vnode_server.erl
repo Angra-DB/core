@@ -76,7 +76,8 @@ send_to_all_vnodes(Request, Responses, Acc) ->
         ok                -> {ok, []};
         {ok, Response}    -> {ok, Response};
         {error, Response} -> {error, Response};
-        ErrorRes          -> {error, ErrorRes}
+        db_does_not_exist -> {ok, db_does_not_exist};
+        Response          -> {ok, Response}
     end,
     send_to_all_vnodes(Request, [Res|Responses], Acc-1).
 
