@@ -131,18 +131,18 @@ connect(Socket, State, Database) ->
     case Res of
         db_does_not_exist ->
             gen_tcp:send(Socket, io_lib:fwrite("Database ~p does not exist~n", [Database])),
-	    State;
-	ok ->
+	        State;
+	    ok ->
             NewState = State#state{ current_db = list_to_atom(Database) },
             gen_tcp:send(Socket, io_lib:fwrite("Database set to ~p...~n", [Database])),
             NewState
     end.
 
-
 persist(Socket, _, none, _) ->
     gen_tcp:send(Socket, io_lib:fwrite("Database not set. Please use the 'use' command.~n", []));
 
 persist(Socket, {Persistence, Settings}, CurrentDB, {Command, Args}) ->
+    io:format("Command ~p ~nArgs ~p~n", [Command, Args]),
     Res = gen_persistence:process_request(list_to_atom(Command), CurrentDB, Args, Persistence, Settings),
     case Res of
         _Response ->
@@ -155,14 +155,18 @@ preprocess(RawData) ->
     _trim = lists:reverse(lists:dropwhile(Pred, _reverse)),
     {Command, Args} = split(_trim),
     case filter_command(Command) of
-      []         -> throw(invalid_command);
-      ["update"] -> {Command, split(Args)};
-			["save_key"] -> {Command, split(Args)};
-      _          -> {Command, Args}
+        [] -> 
+            throw(invalid_command);
+        ["update"] -> 
+            {Command, split(Args)};
+	    ["save_key"] -> 
+            {Command, split(Args)};
+        _ -> 
+            {Command, Args}
     end.
 
 filter_command(Command) ->
-    ValidCommands = ["save", "save_key", "lookup", "update", "delete", "connect", "create_db", "delete_db", "query_term", "query"],
+    ValidCommands = ["save", "save_key", "lookup", "update", "delete", "connect", "create_db", "delete_db", "query_term", "query", "bulk_lookup"],
     [X || X <- ValidCommands, X =:= Command].
 
 split(Str) ->

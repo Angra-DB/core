@@ -5,7 +5,7 @@
 -export([start/2, process_request/5, gen_key/0]).
 
 behaviour_info(callbacks) ->
-  [{setup, 1}, {teardown, 1}, {createDB, 2}, {connect, 2}, {save, 3}, {lookup, 2}, {update, 3}, {delete, 2}, {query_term, 2}, {query, 2}].
+  [{setup, 1}, {teardown, 1}, {createDB, 2}, {connect, 2}, {save, 3}, {lookup, 2}, {update, 3}, {delete, 2}, {query_term, 2}, {query, 2}, {bulk_lookup, 2}].
 
 start(_Child, _Args) ->  ok.
 
@@ -34,7 +34,10 @@ process_request(query_term, DB, Term, Child, _) ->
     Child:query_term(DB, Term);
 
 process_request(query, DB, Term, Child, _) ->
-    Child:query(DB, Term).
+    Child:query(DB, Term);
+
+process_request(bulk_lookup, DB, Keys, Child, _) ->
+    Child:bulk_lookup(DB, split(Keys, " ")).
 
 gen_key() ->
     Time = erlang:system_time(nano_seconds),
@@ -44,3 +47,12 @@ gen_key() ->
     {Id, _} = string:to_integer(StringRandom++StringTime),
     Ctx = hashids:new([{salt, "AngraDB"}, {min_hash_length, 1}, {default_alphabet, "ABCDEF0123456789"}]),
     hashids:encode(Ctx, Id).
+
+split(Str, Separators) ->
+  Stripped = string:strip(Str),
+  Lines = string:tokens(Stripped, Separators),
+  remove_empty(Lines).
+
+remove_empty(List) ->
+  Pred = fun (X) -> X =/= "" end,
+  lists:filter(Pred, List).
