@@ -65,6 +65,6 @@ process_request({Command, Database, Database}, State) ->
     DatabaseName = Database ++ "@" ++ atom_to_list(State#state.name),
     gen_persistence:process_request(Command, DatabaseName, DatabaseName, State#state.persistence);
 process_request({Command, Database, Args}, State) ->
-    DatabaseName = Database ++ "@" ++ atom_to_list(State#state.name),
+    DatabaseName = list_to_atom(Database ++ "@" ++ atom_to_list(State#state.name)),
     gen_persistence:process_request(Command, DatabaseName, Args, State#state.persistence).
     

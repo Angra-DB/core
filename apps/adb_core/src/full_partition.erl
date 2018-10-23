@@ -28,7 +28,7 @@ connect(Database) ->
 
 save(Database, Key, Doc) ->
     Targets = [node()|nodes()],
-    Request = {process_request, {all, {save, Database, {Key, Doc}}}},
+    Request = {process_request, {all, {save_key, Database, {Key, Doc}}}},
     ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
     case gen_partition:validate_response(ResponseStats, Targets, read) of
         {success, Response} -> {ok, Response};

@@ -29,7 +29,7 @@ connect(Database) ->
 save(Database, {Key, HashFunc}, Doc) ->
     HashKey = crypto:hash(HashFunc, Key),
     {Target, VNode} = get_target_node(HashKey),
-    Request = {process_request, {VNode, {save, Database, {crypto:bytes_to_integer(HashKey), Doc}}}},
+    Request = {process_request, {VNode, {save_key, Database, {crypto:bytes_to_integer(HashKey), Doc}}}},
     gen_server:call({adb_vnode_server, Target}, Request).
 
 lookup(Database, {Key, HashFunc}) ->
