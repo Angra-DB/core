@@ -1,6 +1,9 @@
 -module(adb_doc_list).
+-include("adbtree.hrl").
 
 -compile(export_all).
+
+-import(adbtree, [get_header/1, read_leaf/3, read_node/2]).
 
 -define(Size, 8).
 
@@ -10,10 +13,35 @@ generate_list(DBName, List) ->
     file:delete(get_replaced_file_name(DBName)),
     ok.
 
-% generate_list(DBName) ->
+generate_list(DBName) ->
+    NameIndex = DBName++"Index.adb",
+    {ok, Fp} = file:open(NameIndex, [read, binary]),
+    {Settings, Btree} = get_header(Fp),
+    LeafPosList = generate_list(Fp, Btree, Settings),
+    LeafList = lists:flatten(LeafPosList),
+    generate_list(DBName, LeafList),
+    file:close(NameIndex),
+    ok.
 
-%     file:write_file(get_file_name(DBName), List),
-%     ok.
+generate_list(Fp, Btree = #btree{curNode=PNode}, Settings) ->
+	file:position(Fp, {bof, PNode}),
+	{ok, Type} = file:read(Fp, 1),
+	case Type of
+		<<?Leaf:1/unit:8>> -> 
+			[PNode];		
+		<<?Node:1/unit:8>> ->
+			Node = read_node(Fp, Btree),
+			generate_list(Node#node.nodePointers, Fp, Btree, Settings);
+		_V -> 
+			error(invalidNodeId)
+    end.
+    
+generate_list([], _Fp, _Btree, _Settings)->
+    {ok, []};
+generate_list([PNode | NodePointers], Fp, Btree, Settings) ->
+    {ok, NewPointers} = generate_list(NodePointers, Fp, Btree, Settings),
+    {ok, NewPos} = generate_list(Fp, Btree#btree{curNode=PNode}, Fp, Settings),
+    {ok, [NewPos | NewPointers]}.
 
 insert(DBName, OldPointer, NewPointers) ->
     List = get_list(DBName),
