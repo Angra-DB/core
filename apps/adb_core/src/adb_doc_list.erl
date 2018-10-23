@@ -18,21 +18,22 @@ generate_list(DBName) ->
     {ok, Fp} = file:open(NameIndex, [read, binary]),
     {Settings, Btree} = get_header(Fp),
     LeafPosList = generate_list(Fp, Btree, Settings),
-    LeafList = lists:flatten(LeafPosList),
-    generate_list(DBName, LeafList),
-    file:close(NameIndex),
+    BinLeafList = list_to_bin(lists:flatten(LeafPosList)),
+    file:write_file(get_file_name(DBName), BinLeafList),
+    file:close(Fp),
     ok.
 
 generate_list(Fp, Btree = #btree{curNode=PNode}, Settings) ->
 	file:position(Fp, {bof, PNode}),
 	{ok, Type} = file:read(Fp, 1),
 	case Type of
-		<<?Leaf:1/unit:8>> -> 
+		<<?Leaf:1/unit:8>> ->
 			[PNode];		
 		<<?Node:1/unit:8>> ->
 			Node = read_node(Fp, Btree),
 			generate_list(Node#node.nodePointers, Fp, Btree, Settings);
-		_V -> 
+		_V ->
+            io:format("Erro!~n"), 
 			error(invalidNodeId)
     end.
     
@@ -112,5 +113,3 @@ remove_pointer([OldPointer | Tail], OldPointer) ->
     Tail;
 remove_pointer([Head | Tail], OldPointer) ->
     [Head | remove_pointer(Tail, OldPointer)].
-
-
