@@ -17,7 +17,7 @@ start_child() ->
 
 init(Args) ->
     Persistence = setup_persistence(Args),
-    VNodes = adb_dist_server:get_config(vnodes),
+    {ok, VNodes} = adb_dist_store:get_config(vnodes),
     CoreNames = [list_to_atom(atom_to_list(adb_persistence_) ++ integer_to_list(X)) || X <- lists:seq(1, VNodes)],
     Cores = [#{id       => Name, 
                start    => {adb_persistence, start_link, [Persistence, Name]},

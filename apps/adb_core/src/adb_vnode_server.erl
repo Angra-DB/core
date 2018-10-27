@@ -56,8 +56,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%==============================================================================
 
 send_to_all_vnodes(Request) ->
-    %% VNodes = adb_dist_server:get_config("vnodes"),
-    VNodes = 3,
+    {ok, VNodes} = adb_dist_store:get_config(vnodes),
     Responses = send_to_all_vnodes(Request, VNodes),
     SuccessRes = proplists:get_all_values(ok, Responses),
     FailedRes = proplists:get_all_values(error, Responses),
