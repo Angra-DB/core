@@ -80,7 +80,8 @@ handle_call({set_config, {Config, Value}}, _From, State) ->
     {reply, {ok, Result}, State};
 
 handle_call(get_ring_info, _From, State) ->
-    [Info] = ets:match(ring, '$1'),
+    Matches = ets:match(ring, '$1'),
+    Info = [X || [X] <- Matches],
     {reply, {ok, Info}, State};
 handle_call({get_ring_info, Node}, _From, State) ->
     Response = case ets:lookup(ring, Node) of 

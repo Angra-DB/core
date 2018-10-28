@@ -32,18 +32,12 @@ start(_Type, StartArgs) ->
     {ok, _Mode} = configure_dist({Dist, Host}, Target),
 
     lager:info("Starting the AngraDB"),
-    Res = case adb_sup:start_link(Config) of
+    case adb_sup:start_link(Config) of
         {ok, Pid}   -> adb_sup:start_child(),
                        {ok, Pid};
         Other       -> error_logger:error_msg(" error: ~s", [Other]),
                        {error, Other}
-    end,
-    case gen_server:call(adb_dist_server, {init_server_or_acknowledge, []}) of
-        {ok, init}                  -> lager:info("Server initilized on this node: ~p. ~n", [node()]);
-        {ok, {acknowledge, Remote}} -> lager:info("Acknowledge to remote server: ~p. ~n", [Remote])
-    end,
-    try_enter_ring(),
-    Res.
+    end.
 
 stop(_State) ->
     ok.
@@ -109,7 +103,3 @@ start_node() ->
 
 stop_node() ->
     ok = net_kernel:stop().
-
-try_enter_ring()->
-    RingId = adb_dist_server:get_ring_id(),
-    lager:info("Ring ID defined as '~p'.~n", [RingId]).
