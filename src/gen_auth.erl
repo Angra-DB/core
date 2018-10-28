@@ -2,12 +2,14 @@
 
 -export([behaviour_info/1]).
 
--export([start/1, process_request/5]).
+-export([start/2, process_request/5]).
 
 behaviour_info(callbacks) ->
-  [{login, 2}, {logout, 1}].
+  [{init, 2}, {login, 2}, {logout, 1}].
 
-start(_Auth_setup) ->  ok.
+% everything needed to start the auth module stays in this function, and inside init/2
+start({Auth_scheme, Auth_settings}, Persistence_setup) ->
+    Auth_scheme:init(Auth_settings, Persistence_setup).
 
 % login/2 is expected to process everything it needs to, and then return the tuple {?LoggedIn, #authentication_info}
 % if the login is successful, and the tuple {?LoggedOut, none} otherwise

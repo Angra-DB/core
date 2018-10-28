@@ -62,7 +62,7 @@ init([LSock, Args]) ->
   PersistSup = {persist_sup, {persist_sup, start_link, []},
     Restart, Shutdown, Type, [persist_sup]},
 
-  {ok, {SupFlags, [ServerSup, PersistSup]}}.
+  {ok, {SupFlags, [PersistSup, ServerSup]}}.
 
 %%%===================================================================
 %%% Internal functions
