@@ -47,8 +47,8 @@
 %%% is a bit trick.
 %%%======================================================
 
-start_link(LSock, Persistence, Auth) ->
-    gen_server:start_link(?MODULE, [LSock, Persistence, Auth], []).
+start_link(LSock, Persistence, Authentication) ->
+    gen_server:start_link(?MODULE, [LSock, Persistence, Authentication], []).
 
 get_count() ->
     gen_server:call(?SERVER, get_count).
@@ -60,8 +60,8 @@ stop() ->
 %%% gen_server callbacks
 %%%===========================================
 
-init([LSock, Persistence, Auth]) ->
-    {ok, #state{lsock = LSock, persistence = Persistence, authentication_setup = Auth}, 0}.
+init([LSock, Persistence, Authentication]) ->
+    {ok, #state{lsock = LSock, persistence = Persistence, authentication_setup = Authentication}, 0}.
 
 handle_call(Msg, _From, State) ->
     {reply, {ok, Msg}, State}.
