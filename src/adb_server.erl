@@ -10,7 +10,7 @@
 
 -module(adb_server).
 -include_lib("eunit/include/eunit.hrl").
--include("gen_auth.hrl").
+-include("gen_authentication.hrl").
 
 -behavior(gen_server).
 
@@ -34,9 +34,9 @@
 
 -define(SERVER, ?MODULE).      % declares a SERVER macro constant (?MODULE is the module's name)
 
-% persistence (the persistence setup and its configurations), auth_setup (the authentication/authorization scheme and its configurations),
-% auth_status (the authentication/authorization current status of this specific connection)
--record(state, {lsock, persistence, parent, current_db = none, auth_setup, auth_status = {?LoggedOut, none}}). % a record for keeping the server state
+% persistence (the persistence setup and its configurations), authentication_setup (the authentication scheme and its configurations),
+% authentication_status (the authentication current status of this specific connection)
+-record(state, {lsock, persistence, parent, current_db = none, authentication_setup, authentication_status = {?LoggedOut, none}}). % a record for keeping the server state
 
 %%%======================================================
 %%% API
@@ -61,7 +61,7 @@ stop() ->
 %%%===========================================
 
 init([LSock, Persistence, Auth]) ->
-    {ok, #state{lsock = LSock, persistence = Persistence, auth_setup = Auth}, 0}.
+    {ok, #state{lsock = LSock, persistence = Persistence, authentication_setup = Auth}, 0}.
 
 handle_call(Msg, _From, State) ->
     {reply, {ok, Msg}, State}.
@@ -114,7 +114,7 @@ process_request(Socket, State, RawData) ->
     end.
 
 evaluate_request(Socket, State, Tokens) ->
-    {Logged, _UserAuthStatus} = State#state.auth_status,
+    {Logged, _UserAuthStatus} = State#state.authentication_status,
 
     case Logged of
         ?LoggedIn -> evaluate_authenticated_request(Socket, State, Tokens);
@@ -154,24 +154,24 @@ evaluate_not_authenticated_request(Socket, State, Tokens) ->
 
 
 %
-% logs in using a given auth scheme (default: adb_auth)
+% logs in using a given auth scheme (default: adb_authentication)
 %
 login(Socket, State, Username, Password) ->
-    {Auth_scheme, _Settings} = State#state.auth_setup,
+    {Auth_scheme, _Settings} = State#state.authentication_setup,
     lager:debug("User ~p trying to log in... Auth Scheme: ~p ~n", [Username, Auth_scheme]),
-    NewState = State#state{ auth_status = gen_auth:process_request(login, Auth_scheme, Username, Password, none)},
-    {_, AuthInfo} = NewState#state.auth_status,
+    NewState = State#state{ authentication_status = gen_authentication:process_request(login, Auth_scheme, Username, Password, none)},
+    {_, AuthInfo} = NewState#state.authentication_status,
     lager:debug("User ~p logged in.", [AuthInfo#authentication_info.username]),
     gen_tcp:send(Socket, io_lib:fwrite("Logged in as ~p...~n", [Username])),
     NewState.
 
 %
-% logs out using a given auth scheme (default: adb_auth)
+% logs out using a given auth scheme (default: adb_authentication)
 %
 logout(Socket, State) ->
-    {Auth_scheme, _Settings} = State#state.auth_setup,
-    NewState = State#state{ auth_status = gen_auth:process_request(logout, Auth_scheme, none, none, State#state.auth_status)},
-    {_, AuthInfo} = State#state.auth_status,
+    {Auth_scheme, _Settings} = State#state.authentication_setup,
+    NewState = State#state{ authentication_status = gen_authentication:process_request(logout, Auth_scheme, none, none, State#state.authentication_status)},
+    {_, AuthInfo} = State#state.authentication_status,
     lager:debug("User ~p logged out.", [AuthInfo#authentication_info.username]),
     gen_tcp:send(Socket, io_lib:fwrite("User logged out...~n", [])),
     NewState.

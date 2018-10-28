@@ -32,7 +32,7 @@ start_child() ->
 
 init([LSock, Persistence, Auth]) ->
   lager:info("Initializing server_sup...", []),
-  gen_auth:start(Auth, Persistence),
+  gen_authentication:start(Auth, Persistence),
 
   Server = {adb_server, {adb_server, start_link, [LSock, Persistence, Auth]}, % {Id, Start, Restart, ... }
       temporary, brutal_kill, worker, [adb_server]},
@@ -58,5 +58,5 @@ setup_auth(Args) ->
   case proplists:get_value(auth, Args) of
     {{name, _}, Settings } ->
       lager:info("starting ADB Auth..."),
-      {adb_auth, Settings}
+      {adb_authentication, Settings}
   end.

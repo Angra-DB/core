@@ -1,7 +1,7 @@
--module(adb_auth).
--include("gen_auth.hrl").
+-module(adb_authentication).
+-include("gen_authentication.hrl").
 
--behaviour(gen_auth).
+-behaviour(gen_authentication).
 
 % API functions
 
@@ -11,19 +11,19 @@
 	logout/1
 ]).
 
-% initializes the adb_auth module. It creates a db for the users' authentication/authorization infos, if it does
+% initializes the adb_authentication module. It creates a db for the users' authentication infos, if it does
 % not exist (that is why it needs to know the persistence setup).
-init(_Auth_settings, {Persistence_scheme, Persistence_settings}) ->
-	lager:debug("Initializing adb_auth module...", []),
-	case gen_persistence:process_request(connect, none, ?AuthDBName, Persistence_scheme, Persistence_settings) of
+init(_Authentication_settings, {Persistence_scheme, Persistence_settings}) ->
+	lager:debug("Initializing adb_authentication module...", []),
+	case gen_persistence:process_request(connect, none, ?AuthenticationDBName, Persistence_scheme, Persistence_settings) of
 		ok ->
-			lager:debug("AuthDatabase connected...", []),
+			lager:debug("AuthenticationDatabase connected...", []),
 			ok;
 		db_does_not_exist ->
-			lager:debug("AuthDatabase not found, creating a new one...", []),
-			gen_persistence:process_request(create_db, none, ?AuthDBName, Persistence_scheme, Persistence_settings);
+			lager:debug("AuthenticationDatabase not found, creating a new one...", []),
+			gen_persistence:process_request(create_db, none, ?AuthenticationDBName, Persistence_scheme, Persistence_settings);
 		Error ->
-			lager:debug("Error while trying to connect to AuthDatabase: ~p", [Error]),
+			lager:debug("Error while trying to connect to AuthenticationDatabase: ~p", [Error]),
 			Error
 	end.
 
@@ -32,22 +32,5 @@ init(_Auth_settings, {Persistence_scheme, Persistence_settings}) ->
 login(Username, Password) ->
 	{?LoggedIn, #authentication_info{username = Username}}.
 
-logout(_Auth_status) ->
+logout(_Authentication_status) ->
 	{?LoggedOut, none}.
-
-%%is_logged_in(Auth_status) ->
-%%	?LoggedIn.
-
-%%is_logged_in(Pid, Socket) ->
-%%	case ets:lookup(pid_to_table_name(Pid), Socket) of
-%%		[Result | _] -> {logged_in, Result};
-%%		[] -> {not_logged_in, []}
-%%	end.
-
-%%% initializes the authentication/authorization table and other security resources
-%%init_auth_table(Pid) ->
-%%	_ = ets:new(pid_to_table_name(Pid), [set, private, named_table]),
-%%	{ok}.
-
-%%pid_to_table_name(Pid) ->
-%%	list_to_atom("auth" ++ pid_to_list(Pid)).
