@@ -33,7 +33,9 @@ init(_Args) ->
 handle_call({process_request, {Target, Args}}, _From, State) ->
     Response = case Target of
         all -> send_to_all_vnodes({process_request, Args});
-        Id  -> gen_server:call(get_vnode_name(Id), {process_request, Args})
+        Id  -> Target = adb_utils:get_vnode_name(Id),
+               Request = {process_request, Args},
+               gen_server:call(Target, Request)
     end,
     {reply, Response, State};
 handle_call(Msg, _From, State) ->
@@ -57,36 +59,31 @@ code_change(_OldVsn, State, _Extra) ->
 
 send_to_all_vnodes(Request) ->
     {ok, VNodes} = adb_dist_store:get_config(vnodes),
-    Responses = send_to_all_vnodes(Request, VNodes),
+    Responses = collect_responses(VNodes, Request),
     SuccessRes = proplists:get_all_values(ok, Responses),
     FailedRes = proplists:get_all_values(error, Responses),
-    {Result, Res} = if 
-        length(SuccessRes) =:= VNodes -> {ok, adb_utils:unique_list(SuccessRes)};
-        true                          -> {error, adb_utils:unique_list(FailedRes)}
-    end,
-    {Result, choose_response(Res)}.
+    generate_final_response(SuccessRes, FailedRes, length(SuccessRes) =:= VNodes).
 
-send_to_all_vnodes(Request, VNodes) ->
-    send_to_all_vnodes(Request, [], VNodes).
+collect_responses(LastIndex, Request) ->
+    collect_responses(LastIndex, Request, []).
 
-send_to_all_vnodes(_, Responses, 0) -> Responses;
-send_to_all_vnodes(Request, Responses, Acc) ->
-    Res = case gen_server:call(get_vnode_name(Acc), Request) of 
-        ok                -> {ok, []};
-        {ok, Response}    -> {ok, Response};
-        {error, Response} -> {error, Response};
-        db_does_not_exist -> {ok, db_does_not_exist};
-        Response          -> {ok, Response}
-    end,
-    send_to_all_vnodes(Request, [Res|Responses], Acc-1).
+collect_responses(0, _Request, Responses) -> Responses;
+collect_responses(Index, Request, Responses) ->
+    {ok, Target} = adb_utils:get_vnode_name(Index),
+    Response = gen_server:call(Target, Request),
+    collect_responses(Index-1, Request, [Response|Responses]).
 
-get_vnode_name(VirtualId) ->
-    list_to_atom(atom_to_list(adb_persistence_) ++ integer_to_list(VirtualId)).
+generate_final_response(SuccessRes, _, true) ->
+    Successes = adb_utils:unique_list(SuccessRes),
+    Response = choose_response(Successes),
+    {ok, Response};
+generate_final_response(_, FailedRes, false) ->
+    Fails = adb_utils:unique_list(FailedRes),
+    Response = choose_response(Fails),
+    {error, Response}.
 
-choose_response(ResList) when is_list(ResList) ->
-    %% Strategy used: Always return the first response.
-    case ResList of
-        []           -> [];
-        [Response]   -> Response;
-        [Response|_] -> Response
-    end.
+%% Strategy used: Always return the first response.
+-spec choose_response([])     -> [];
+                     (list()) -> term().
+choose_response([]) -> [];
+choose_response([Response|_]) -> Response.

@@ -1,7 +1,7 @@
 %%-----------------------------------------------------------------------------
 %% @author Ismael Coelho Medeiros <140083162@aluno.unb.br>
 %%
-%% @doc a first attempt to build the Angra-DB server
+%% @doc 
 %% 
 %% @end
 %%-----------------------------------------------------------------------------
@@ -64,24 +64,8 @@ handle_call({forward_request, {Command, Args}}, _From, State) ->
 handle_call({publish_ring_id, []}, _From, State) ->
     {reply, ok, State};
 handle_call({node_up, []}, _From, State) ->
-    {ok, Persistence} = adb_dist_store:get_config(persistence),
-    {ok, Distribution} = adb_dist_store:get_config(distribution),
-    {ok, Partition} = adb_dist_store:get_config(partition),
-    {ok, Replication} = adb_dist_store:get_config(replication),
-    {ok, WriteQuorum} = adb_dist_store:get_config(write_quorum),
-    {ok, ReadQuorum} = adb_dist_store:get_config(read_quorum),
-    {ok, VNodes} = adb_dist_store:get_config(vnodes),
-    {ok, GossipInterval} = adb_dist_store:get_config(gossip_interval),
-    {ok, Server} = adb_dist_store:get_config(server),
-    {reply, {ok, [{persistence, Persistence},
-                  {distribution, Distribution},
-                  {partition, Partition},
-                  {replication, Replication},
-                  {write_quorum, WriteQuorum},
-                  {read_quorum, ReadQuorum},
-                  {vnodes, VNodes},
-                  {gossip_interval, GossipInterval},
-                  {server, Server}]}, State};
+    {ok, Config} = adb_dist_store:get_config(),
+    {reply, {ok, Config}, State};
 handle_call(Msg, _From, State) ->
     {reply, {ok, Msg}, State}.
 

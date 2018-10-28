@@ -10,14 +10,16 @@
 
 %% API functions
 -export([start_link/1, get_count/0, stop/0]).
--export([get_config/1, set_config/2, get_ring_info/0, get_ring_info/1, set_ring_info/2]).
+-export([get_config/0, get_config/1, set_config/2, get_ring_info/0, get_ring_info/1, set_ring_info/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -define(SERVER, ?MODULE).
+-define(CONFIG, [persistence, distribution, partition, replication, write_quorum, read_quorum, vnodes, gossip_interval, server]).
 
 -record(state, {configStore, ringInfoStore}).
+
 
 %%=============================================================================
 %% API functions
@@ -31,6 +33,9 @@ get_count() ->
 
 stop() ->
     gen_server:cast(?SERVER, stop).
+
+get_config() ->
+    gen_server:call(?SERVER, get_config).
 
 get_config(Config) when is_atom(Config) ->
     gen_server:call(?SERVER, {get_config, Config}).
@@ -57,18 +62,14 @@ init(Config) ->
     ConfigStore = ets:new(config, [set, public, named_table]),
     RingInfoStore = ets:new(ring, [set, public, named_table]),
     %% Populate config store.
-    ets:insert(config, proplists:lookup(persistence, Config)),
-    ets:insert(config, proplists:lookup(distribution, Config)),
-    ets:insert(config, proplists:lookup(partition, Config)),
-    ets:insert(config, proplists:lookup(replication, Config)),
-    ets:insert(config, proplists:lookup(write_quorum, Config)),
-    ets:insert(config, proplists:lookup(read_quorum, Config)),
-    ets:insert(config, proplists:lookup(vnodes, Config)),
-    ets:insert(config, proplists:lookup(gossip_interval, Config)),
-    ets:insert(config, proplists:lookup(server, Config)),
+    [ets:insert(config, proplists:lookup(K, Config)) || K <- ?CONFIG],
     {ok, #state{configStore   = ConfigStore,
                 ringInfoStore = RingInfoStore}, 0}.
 
+handle_call(get_config, _From, State) ->
+    Matches = ets:match(config, '$1'),
+    Config = [X || [X] <- Matches],
+    {reply, {ok, Config}, State};
 handle_call({get_config, Config}, _From, State) ->
     Response = case ets:lookup(config, Config) of 
         []                -> {ok, none};

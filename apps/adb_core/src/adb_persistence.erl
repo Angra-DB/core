@@ -39,8 +39,9 @@ init([Persistence, Name]) ->
     {ok, #state{persistence = Persistence, name = Name}, 0}.
 
 handle_call({process_request, Args}, _From, State) -> 
-    Res = process_request(Args, State),
-    {reply, Res, State};
+    PersistRes = process_request(Args, State),
+    Response = standardize_response(PersistRes),
+    {reply, Response, State};
 handle_call(Msg, _From, State) ->
     {reply, {ok, Msg}, State}.
 
@@ -62,9 +63,14 @@ code_change(_OldVsn, State, _Extra) ->
 %%==============================================================================
 
 process_request({Command, Database, Database}, State) ->
-    DatabaseName = Database ++ "@" ++ atom_to_list(State#state.name),
+    DatabaseName = adb_utils:get_database_name(Database, State#state.name),
     gen_persistence:process_request(Command, DatabaseName, DatabaseName, State#state.persistence);
 process_request({Command, Database, Args}, State) ->
-    DatabaseName = list_to_atom(Database ++ "@" ++ atom_to_list(State#state.name)),
+    DatabaseName = list_to_atom(adb_utils:get_database_name(Database, State#state.name)),
     gen_persistence:process_request(Command, DatabaseName, Args, State#state.persistence).
     
+standardize_response(ok)                -> {ok, []};
+standardize_response({ok, Response})    -> {ok, Response};
+standardize_response({error, ErrorMsg}) -> {error, ErrorMsg};
+standardize_response(db_does_not_exist) -> {ok, db_does_not_exist};
+standardize_response(Response)          -> {ok, Response}.
