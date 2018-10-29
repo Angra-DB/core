@@ -10,6 +10,7 @@
 
 %% API functions
 -export([start_link/0, get_count/0, stop/0]).
+-export([find_next_node/0, find_next_node/1]).
 -export([get_ring_id/0, get_ring_id/1, forward_request/2]).
 
 %% gen_server callbacks
@@ -29,6 +30,19 @@ get_count() ->
 
 stop() ->
     gen_server:cast(?SERVER, stop).
+
+find_next_node() ->
+    find_next_node(node()).
+
+find_next_node(Node) ->
+    {ok, RingInfo} = adb_dist_store:get_ring_info(),
+    {ok, SortedRingInfo} = adb_utils:sort_ring_info(RingInfo),
+    ThisNodeWithNexts = lists:dropwhile(fun({A, _Rindid}) -> A =/= Node end, SortedRingInfo),
+    case tl(ThisNodeWithNexts) of 
+        []       -> [H|_] = SortedRingInfo,
+                    {ok, H}; 
+        [Next|_] -> {ok, Next}
+    end.
 
 get_ring_id() ->
     get_ring_id(cache).
@@ -101,10 +115,10 @@ get_or_create_ring_id() ->
     end.
 
 generate_new_ring_id(LastRingId) ->
-    {Num, Dem} = LastRingId,
+    {Num, Den} = LastRingId,
     if
-        Num + 2 > Dem -> {1, Dem * 2};
-        true          -> {Num + 2, Dem}
+        Num + 2 > Den -> {1, Den * 2};
+        true          -> {Num + 2, Den}
     end.
 
 get_partition_module() ->

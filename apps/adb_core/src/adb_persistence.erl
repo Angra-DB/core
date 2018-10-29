@@ -12,6 +12,7 @@
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-export([replicate_request/2]).
 
 -define(SERVER, ?MODULE).
 
@@ -31,6 +32,9 @@ get_count() ->
 stop() ->
     gen_server:cast(?SERVER, stop).
 
+replicate_request(Args, Copies) ->
+    gen_server:cast(?SERVER, {replicate_request, Args, Copies}).
+
 %%=============================================================================
 %% gen_server callbacks
 %%=============================================================================
@@ -42,6 +46,30 @@ handle_call({process_request, Args}, _From, State) ->
     PersistRes = process_request(Args, State),
     Response = standardize_response(PersistRes),
     {reply, Response, State};
+handle_call({process_request, Args, replicate}, _From, State) -> 
+    PersistRes = process_request(Args, State),
+    Response = standardize_response(PersistRes),
+    case adb_dist_server:find_next_node() of
+        {ok, Next} when Next =:= node() -> do_nothing;
+        {ok, Next}                      -> spawn(Next, State#state.name, replicate_request, [Args, [node()]])
+    end,
+    {reply, Response, State};
+handle_call({replicate_request, Args, Copies}, _From, State) ->
+    {ok, Replication} = adb_dist_store:get_config(),
+    if 
+        length(Copies) =< Replication -> 
+            process_request(Args, State),
+            case adb_dist_server:find_next_node() of
+                {ok, Next} when Next =:= node() -> do_nothing;
+                {ok, Next}                      -> 
+                    case lists:search(fun(X) -> X =:= Next end, Copies) of
+                        {value, _} -> do_nothing;
+                        false      -> spawn(Next, State#state.name, replicate_request, [Args, [node()|Copies]])
+                    end
+            end;
+        true                          -> do_nothing
+    end,
+    {reply, ok, State};
 handle_call(Msg, _From, State) ->
     {reply, {ok, Msg}, State}.
 

@@ -1,6 +1,6 @@
 -module(adb_utils).
 
--export([get_env/1, get_env/2, gen_key/0, gen_name/0, choose_randomly/1, unique_list/1, get_vnode_name/1, get_vnode_name/2, get_database_name/2]).
+-export([get_env/1, get_env/2, gen_key/0, gen_name/0, choose_randomly/1, unique_list/1, get_vnode_name/1, get_vnode_name/2, get_database_name/2, sort_ring_info/1]).
 
 get_env(EnvVar) ->
     case os:getenv(EnvVar, none) of
@@ -51,3 +51,8 @@ get_vnode_name(Id, VNodes) when VNodes > 1 ->
 get_database_name(Database, adb_persistence) -> Database;
 get_database_name(Database, VNodeName) when is_atom(VNodeName) ->
     string:join([Database, "@", atom_to_list(VNodeName)], "").
+
+sort_ring_info(RingInfo) ->
+    Pred = fun({_, {ANum, ADen}}, {_, {BNum, BDen}}) -> (ANum / ADen) =< (BNum / BDen) end,
+    Sorted = lists:sort(Pred, RingInfo),
+    {ok, Sorted}.
