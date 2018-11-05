@@ -41,7 +41,13 @@ init(Args) ->
                    shutdown => brutal_kill, 
                    type     => worker, 
                    modules  => [adb_dist_server]},
-    Specs = lists:append([GossipServer, DistStore, DistServer], OtherSpecs),
+    GossipScheduler = #{id       => adb_gossip_scheduler,
+                        start    => {adb_gossip_scheduler, start_link, []},
+                        restart  => temporary,
+                        shutdown => brutal_kill,
+                        type     => worker,
+                        modules  => [adb_gossip_scheduler]},
+    Specs = lists:append([GossipServer, DistStore, DistServer, GossipScheduler], OtherSpecs),
     RestartStrategy = {one_for_one, 1000, 3600},
     {ok, {RestartStrategy, Specs}}.
 

@@ -64,8 +64,7 @@ init([]) ->
     RingId = get_or_create_ring_id(),
     adb_dist_store:set_ring_info(node(), RingId),
     lager:info("Ring ID defined as '~p'.~n", [RingId]),
-    adb_gossip_server:update(ring_id, {node(), RingId}),
-    adb_gossip_server:push(ring_id),
+    adb_gossip_server:sync(),
     {ok, none, 0}.
 
 handle_call({forward_request, {Command, Args}}, _From, State) ->
@@ -100,18 +99,23 @@ code_change(_OldVsn, State, _Extra) ->
 %%==============================================================================
 
 get_or_create_ring_id() ->
-    case adb_gossip_server:pull(ring_id) of
-        noremotenode -> RingId = {1, 1},
-                        adb_gossip_server:create(ring_id, {node(), RingId}),
-                        RingId;
-        ok           -> case adb_gossip_server:get(ring_id) of
-                            none  -> RingId = {1, 1},
-                                     adb_gossip_server:create(ring_id, {node(), RingId}),
-                                     RingId;
-                            Store -> {Node, LastRingId} = maps:get(value, Store),
-                                     store_last_ring_id(Node, LastRingId),
-                                     generate_new_ring_id(LastRingId)
-                        end
+    case adb_gossip_server:sync() of
+        {warning, no_remote_nodes} -> 
+            RingId = {1, 1},
+            adb_gossip_server:create(ring_id, {node(), RingId}, fun store_ring_id/1),
+            RingId;
+        {ok, synced} -> 
+            case adb_gossip_server:get(ring_id) of
+                {warning, key_not_found} -> 
+                    RingId = {1, 1},
+                    adb_gossip_server:create(ring_id, {node(), RingId}, fun store_ring_id/1),
+                    RingId;
+                {ok, Store} -> 
+                    {_, LastRingId} = maps:get(value, Store),
+                    NewRingId = generate_new_ring_id(LastRingId),
+                    adb_gossip_server:update(ring_id, [{value, {node(), NewRingId}}, {timestamp, os:timestamp()}]),
+                    NewRingId
+            end
     end.
 
 generate_new_ring_id(LastRingId) ->
@@ -128,5 +132,5 @@ get_partition_module() ->
         _Full           -> full_partition
     end.
 
-store_last_ring_id(Node, LastRingId) ->
-    adb_dist_store:set_ring_info(Node, LastRingId).
+store_ring_id({Node, RingId}) ->
+    adb_dist_store:set_ring_info(Node, RingId).
