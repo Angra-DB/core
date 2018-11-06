@@ -12,11 +12,12 @@
     {adb_app, [
         {persistence, adbtree},          %% {persistence, ets | hanoidb | adbtree}
         {distribution, dist},            %% {distribution, dist | mono}
-        {partition, {consistent, md5}},  %% {partition, full | {consistent, <hash_func>}}
+        {partition, full},               %% {partition, full | {consistent, <hash_func>}}
         {replication, 3},                %% Number of copies
         {write_quorum, 2},               %% Number of successful writes needed to consider the operation valid.
         {read_quorum, 2},                %% Number of successful reads needed to consider the operation valid.
-        {vnodes, 3}                      %% Number of vnodes
+        {vnodes, 3},                     %% Number of vnodes
+        {gossip_interval, 600000}        %% Gossip Interval (milliseconds)
     ]}
  }
 ]}.

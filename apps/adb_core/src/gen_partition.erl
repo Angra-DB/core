@@ -80,11 +80,9 @@ generate_stats(Responses) ->
         {length(FailedRes), adb_utils:unique_list(FailedRes)}}].
 
 validate_response(Stats, Targets, Type) ->
-    %% TODO: Get parameter of quorum.
-    %% Quorum = adb_dist_server:get_config("read_quorum|write_quorum")
-    Quorum = case Type of
-        write -> 2;
-        read  -> 2
+    {ok, Quorum} = case Type of
+        write -> adb_dist_store:get_config(write_quorum);
+        read  -> adb_dist_store:get_config(read_quorum)
     end,
     {SuccessRequests, Responses} = proplists:get_value(success, Stats),
     if 

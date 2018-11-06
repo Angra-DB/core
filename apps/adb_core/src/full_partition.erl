@@ -26,17 +26,41 @@ connect(Database) ->
         {failed, Response}  -> {error, Response}
     end.
 
-save(_Database, _Key, _Doc) ->
-    save.
+save(Database, Key, Doc) ->
+    Targets = [node()|nodes()],
+    Request = {process_request, {all, {save_key, Database, {Key, Doc}}}},
+    ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
+    case gen_partition:validate_response(ResponseStats, Targets, read) of
+        {success, Response} -> {ok, Response};
+        {failed, Response}  -> {error, Response}
+    end.
 
-lookup(_Database, _Key) ->
-    lookup.
+lookup(Database, Key) ->
+    Targets = [node()|nodes()],
+    Request = {process_request, {all, {lookup, Database, Key}}},
+    ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
+    case gen_partition:validate_response(ResponseStats, Targets, read) of
+        {success, Response} -> {ok, Response};
+        {failed, Response}  -> {error, Response}
+    end.
 
-update(_Database, _Key, _Doc) ->
-    update.
+update(Database, Key, Doc) ->
+    Targets = [node()|nodes()],
+    Request = {process_request, {all, {update, Database, {Key, Doc}}}},
+    ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
+    case gen_partition:validate_response(ResponseStats, Targets, read) of
+        {success, Response} -> {ok, Response};
+        {failed, Response}  -> {error, Response}
+    end.
 
-delete(_Database, _Key) ->
-    delete.
+delete(Database, Key) ->
+    Targets = [node()|nodes()],
+    Request = {process_request, {all, {delete, Database, Key}}},
+    ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
+    case gen_partition:validate_response(ResponseStats, Targets, read) of
+        {success, Response} -> {ok, Response};
+        {failed, Response}  -> {error, Response}
+    end.
 
 %%==============================================================================
 %% Internal functions
