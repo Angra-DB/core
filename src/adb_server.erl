@@ -122,7 +122,7 @@ evaluate_request(Socket, State, Tokens) ->
     end.
 
 evaluate_authenticated_request(Socket, State, Tokens) ->
-    lager:debug("Evaluating authenticated request... Tokens: ~p", [Tokens]),
+    lager:debug("adb_server -- Evaluating authenticated request... Tokens: ~p", [Tokens]),
     case Tokens of
         {"login", _} ->
             gen_tcp:send(Socket, "You are already logged in. In order to log in with a different account, use the command 'logout' first.~n"),
@@ -131,6 +131,8 @@ evaluate_authenticated_request(Socket, State, Tokens) ->
             logout(Socket, State);
         {"connect", Database} ->
             connect(Socket, State, Database);
+        {"register", {Username, Password}} ->
+            register(Socket, State, Username, Password);
         {"create_db", Database} ->
             persist(Socket, State#state.persistence, Database, Tokens),
             State;
@@ -140,13 +142,15 @@ evaluate_authenticated_request(Socket, State, Tokens) ->
     end.
 
 evaluate_not_authenticated_request(Socket, State, Tokens) ->
-    lager:debug("Evaluating non-authenticated request... Tokens: ~p", [Tokens]),
+    lager:debug("adb_server -- Evaluating non-authenticated request... Tokens: ~p", [Tokens]),
     case Tokens of
         {"login", {Username, Password}} ->
             login(Socket, State, Username, Password);
         {"logout", _} ->
             gen_tcp:send(Socket, io_lib:fwrite("You are already logged out.~n", [])),
             State;
+        {"register", {Username, Password}} ->
+            register(Socket, State, Username, Password);
         _ ->
             gen_tcp:send(Socket, io_lib:fwrite("You are not logged in yet. To do so, use the command 'login [user_name] [password]'~n", [])),
             State
@@ -158,11 +162,22 @@ evaluate_not_authenticated_request(Socket, State, Tokens) ->
 %
 login(Socket, State, Username, Password) ->
     {Auth_scheme, _Settings} = State#state.authentication_setup,
-    lager:debug("User ~p trying to log in... Auth Scheme: ~p ~n", [Username, Auth_scheme]),
-    NewState = State#state{ authentication_status = gen_authentication:process_request(login, Auth_scheme, Username, Password, none)},
-    {_, AuthInfo} = NewState#state.authentication_status,
-    lager:debug("User ~p logged in.", [AuthInfo#authentication_info.username]),
-    gen_tcp:send(Socket, io_lib:fwrite("Logged in as ~p...~n", [Username])),
+    {Persistence_scheme, _Persistence_settings} = State#state.persistence,
+    lager:debug("adb_server -- User ~p trying to log in... Auth Scheme: ~p. Persistence Scheme: ~p ~n", [Username, Auth_scheme, Persistence_scheme]),
+    LoginResult = gen_authentication:process_request(login, Auth_scheme, Username, Password, none, Persistence_scheme),
+    case LoginResult of
+        {?LoggedIn, _AuthenticationInfo} ->
+            gen_tcp:send(Socket, io_lib:fwrite("User ~p logged in successfully...~n", [Username]));
+        {?LoggedOut, FailureInfo} ->
+            case FailureInfo of
+                ?ErrorInvalidPasswordOrUsername ->
+                    gen_tcp:send(Socket, io_lib:fwrite("Log in failed. You have entered an invalid username or password...~n", []));
+                Error ->
+                    gen_tcp:send(Socket, io_lib:fwrite("An internal error occurred while trying to log in. Error: ~p~n", [Error]))
+            end
+    end,
+    NewState = State#state{ authentication_status = LoginResult},
+    % {_Status, _AuthInfo} = NewState#state.authentication_status, % for possible future uses...
     NewState.
 
 %
@@ -170,11 +185,26 @@ login(Socket, State, Username, Password) ->
 %
 logout(Socket, State) ->
     {Auth_scheme, _Settings} = State#state.authentication_setup,
-    NewState = State#state{ authentication_status = gen_authentication:process_request(logout, Auth_scheme, none, none, State#state.authentication_status)},
-    {_, AuthInfo} = State#state.authentication_status,
-    lager:debug("User ~p logged out.", [AuthInfo#authentication_info.username]),
+    NewState = State#state{ authentication_status = gen_authentication:process_request(logout, Auth_scheme, none, none, State#state.authentication_status, none)},
+    {_Status, AuthInfo} = State#state.authentication_status,
+    lager:debug("adb_server -- User ~p logged out.", [AuthInfo#authentication_info.username]),
     gen_tcp:send(Socket, io_lib:fwrite("User logged out...~n", [])),
     NewState.
+
+%
+% registers a user with a given auth and persistence scheme
+%
+register(Socket, State, Username, Password) ->
+    {Auth_scheme, _Auth_settings} = State#state.authentication_setup,
+    {Persistence_scheme, _Persistence_settings} = State#state.persistence,
+    lager:debug("adb_server -- Trying to register user ~p... Auth Scheme: ~p ~n", [Username, Auth_scheme]),
+    case gen_authentication:process_request(register, Auth_scheme, Username, Password, none, Persistence_scheme) of
+        {ok, _} ->
+            gen_tcp:send(Socket, io_lib:fwrite("User ~p registered...~n", [Username]));
+        {error, Error} ->
+            gen_tcp:send(Socket, io_lib:fwrite("User ~p could not be registered. Error: ~p~n", [Username, Error]))
+    end,
+    State.
 
 %
 % connects to an existing database.
@@ -194,7 +224,7 @@ connect(Socket, State, Database) ->
 
 
 persist(Socket, _, none, _) ->
-    gen_tcp:send(Socket, io_lib:fwrite("Database not set. Please use the 'use' command.~n", []));
+    gen_tcp:send(Socket, io_lib:fwrite("Database not set. Please use the command 'connect [db_name]'.~n", []));
 
 persist(Socket, {Persistence, Settings}, CurrentDB, {Command, Args}) ->
     Res = gen_persistence:process_request(list_to_atom(Command), CurrentDB, Args, Persistence, Settings),
@@ -213,11 +243,12 @@ preprocess(RawData) ->
       ["update"] -> {Command, split(Args)};
 			["save_key"] -> {Command, split(Args)};
 			["login"] -> {Command, split(Args)};
+			["register"] -> {Command, split(Args)};
       _          -> {Command, Args}
     end.
 
 filter_command(Command) ->
-    ValidCommands = ["save", "save_key", "lookup", "update", "delete", "connect", "create_db", "delete_db", "query_term", "login", "logout"],
+    ValidCommands = ["save", "save_key", "lookup", "update", "delete", "connect", "create_db", "delete_db", "query_term", "login", "logout", "register"],
     [X || X <- ValidCommands, X =:= Command].
 
 split(Str) ->

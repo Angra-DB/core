@@ -1,0 +1,3 @@
+-define(Pbkdf2_hash_algorithm, sha512).
+-define(Pbkdf2_iterations, 10000).
+-define(Pbkdf2_derived_key_length, 512).

@@ -1,7 +1,7 @@
 -define(SizeOfPointer, 8).
 -define(SizeOfHeader, 66).
 -define(OrderSize, 2).
--define(KeySize, 14).
+-define(KeySize, 16).
 -define(Node, 0).
 -define(Leaf, 1).
 -define(SizeOfSize, 8).
