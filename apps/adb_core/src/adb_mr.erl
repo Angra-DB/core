@@ -32,6 +32,9 @@
 
 -export([start/0, start_task/2, quit/0]).
 
+-import(adbtree, [get_header/1, read_doc/2, doc_count/1]).
+-import(token_parser, [receive_json/1]).
+
 % Public functions:
 
 % start(ServerName, Module, Args, Options) -> Result
@@ -126,12 +129,21 @@ handle_cast({mr_task, #taskInformation{manager = Manager, documentIndexList = Do
         	{noreply, State, 5}
 	end;
 handle_cast({mr_worker}, #nodeInfo{database = Database, workerTask = #workerTask{manager = Manager, documentIndexList = DocIndexList, map = Map, reduce = Reduce}}) ->
-	MapResults = adb_map(Database, DocIndexList, Map),
-	ReduceResults = adb_reduce(MapResults, Reduce),
-	Result = #taskResult{node = node(), result = ReduceResults, taskCompletionDate = calendar:universal_time()},
-	gen_server:cast({adb_mr, Manager}, {task_done, Result}),
-	NewState = #nodeInfo{status = idle, database = none, managementTask = none, workerTask = none, lastResult = Result},
-	{ok, NewState};
+		try
+			NameIndex = Database++"Index.adb",
+			{ok, Fp} = file:open(NameIndex, [read, binary]),
+			{Settings, Btree} = get_header(Fp),
+			MapResults = adb_map(Database, DocIndexList, Map, Settings),
+			ReduceResults = adb_reduce(MapResults, Reduce),
+			Result = #taskResult{node = node(), result = ReduceResults, taskCompletionDate = calendar:universal_time()},
+			gen_server:cast({adb_mr, Manager}, {task_done, Result}),
+			NewState = #nodeInfo{status = idle, database = none, managementTask = none, workerTask = none, lastResult = Result},
+			file:close(Fp),
+			{ok, NewState}
+		catch
+			error:Error ->
+				{error, Error}
+		end;	
 
 handle_cast({task_done, Result = #taskResult{node = Node}}, NodeInfo = #nodeInfo{managementTask = #managementTask{merge = Merge}}) ->
 	ets:insert(?ManagerTable, {Node, Result}),
@@ -192,10 +204,14 @@ quit() ->
 %
 
 get_document_count(Database) ->
-    3.
+	{ok, Count} = doc_count(Database),
+	Count.
 
-get_document(Database, Index) ->
-	ok.
+get_document(Pos, Settings) ->
+	{ok, Doc, {ver, _}} = read_doc(Pos, Settings),
+	% Parsing the document to proplist.
+	{ok, Token_list} = receive_json(Doc),
+	Token_list.
 
 %
 %
@@ -278,13 +294,13 @@ reset_table() ->
 	ets:delete(?ManagerTable),
 	ets:new(?ManagerTable, [named_table]).
 
-adb_map(_, [], _) ->
+adb_map(_, [], _, _) ->
 	[];
-adb_map(Database, [Index | Tail], Map) ->
-	Doc = get_document(Database, Index),
+adb_map(Database, [Index | Tail], Map, Settings) ->
+	Doc = get_document(Index, Settings),
 	try Map(Doc) of
 		MapResult ->
-			[MapResult | adb_map(Database, Tail, Map)]
+			[MapResult | adb_map(Database, Tail, Map, Settings)]
 	catch
 		Error ->
 			throw({adb_map_error, Error, Index})
@@ -300,6 +316,3 @@ adb_reduce([Head | Tail], Reduce) ->
 		Error ->
 			throw({adb_reduce_error, Error, Head})
 	end.
-
-execute_mr() ->
-	ok.
