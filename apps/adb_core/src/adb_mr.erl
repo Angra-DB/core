@@ -26,14 +26,17 @@
     handle_call/3,
     handle_cast/2,
     handle_info/2,
-    terminate/2
+	terminate/2,
+	simpleCall/1
     % code_change/3
 ]).
 
 -export([start/0, start_task/2, quit/0]).
 
 -import(adbtree, [get_header/1, read_doc/2, doc_count/1, doc_list/1]).
--import(token_parser, [receive_json/1]).
+-import(jsone, [decode/2]).
+
+-import(adb_mr_tests, [map1/1]).
 
 % Public functions:
 
@@ -114,7 +117,11 @@ handle_call({mr_task, Database, Map, Reduce, Merge}, _, State = #nodeInfo{status
         _ ->
         	NewState = #nodeInfo{status = idle, database = none, managementTask = none, workerTask = none, lastResult = State#nodeInfo.lastResult},
             {reply, {error, "Unexpected server state. Returning to Idle State."}, NewState}
-    end.
+	end;
+handle_call({mr, F}, _, State) ->
+	Res = F([1,2,3,4,5,6,7,8]),
+	{reply, {ok, Res}, State}.
+
 
 
 
@@ -212,8 +219,10 @@ get_document(Index, DocList, Settings) ->
 	DocPos = lists:nth(Index, DocList),
 	{ok, Doc, {ver, _}} = read_doc(DocPos, Settings),
 	% Parsing the document to proplist.
-	{ok, Token_list} = receive_json(Doc),
-	Token_list.
+	decode(Doc, [{object_format, proplist}]).
+
+parse_doc(Doc) ->
+	decode(Doc, [{object_format, proplist}]).
 
 %
 %
@@ -318,3 +327,6 @@ adb_reduce([Head | Tail], Reduce) ->
 		Error ->
 			throw({adb_reduce_error, Error, Head})
 	end.
+
+simpleCall(Pid) ->
+	gen_server:call({high, Pid}, {mr, fun adb_mr_tests:map1/1}).
