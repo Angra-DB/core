@@ -32,7 +32,7 @@
 
 -export([start/0, start_task/2, quit/0]).
 
--import(adbtree, [get_header/1, read_doc/2, doc_count/1]).
+-import(adbtree, [get_header/1, read_doc/2, doc_count/1, doc_list/1]).
 -import(token_parser, [receive_json/1]).
 
 % Public functions:
@@ -132,8 +132,9 @@ handle_cast({mr_worker}, #nodeInfo{database = Database, workerTask = #workerTask
 		try
 			NameIndex = Database++"Index.adb",
 			{ok, Fp} = file:open(NameIndex, [read, binary]),
-			{Settings, Btree} = get_header(Fp),
-			MapResults = adb_map(Database, DocIndexList, Map, Settings),
+			{Settings, _} = get_header(Fp),
+			DocList = doc_list(Database),
+			MapResults = adb_map(Database, DocIndexList, Map, DocList, Settings),
 			ReduceResults = adb_reduce(MapResults, Reduce),
 			Result = #taskResult{node = node(), result = ReduceResults, taskCompletionDate = calendar:universal_time()},
 			gen_server:cast({adb_mr, Manager}, {task_done, Result}),
@@ -207,8 +208,9 @@ get_document_count(Database) ->
 	{ok, Count} = doc_count(Database),
 	Count.
 
-get_document(Pos, Settings) ->
-	{ok, Doc, {ver, _}} = read_doc(Pos, Settings),
+get_document(Index, DocList, Settings) ->
+	DocPos = lists:nth(Index, DocList),
+	{ok, Doc, {ver, _}} = read_doc(DocPos, Settings),
 	% Parsing the document to proplist.
 	{ok, Token_list} = receive_json(Doc),
 	Token_list.
@@ -246,7 +248,7 @@ check_nodes([Target | Tail]) ->
 distribute_tasks(Database, Map, Reduce, Nodes) ->
     DocCount = get_document_count(Database),
     {RegularAmount, RemainingAmount} = split_work(length(Nodes), DocCount),
-    DistributedTasks = create_tasks(Nodes, 0, RegularAmount, RemainingAmount),
+    DistributedTasks = create_tasks(Nodes, 1, RegularAmount, RemainingAmount),
     send_tasks(DistributedTasks, Database, Map, Reduce),
     #managementTask{tasksDistributed = DistributedTasks, documentCount = DocCount, map = Map, reduce = Reduce, merge = none, resultList = [], result = none}.
 
@@ -260,7 +262,7 @@ create_tasks([Head | Tail], Index, Regular, Remaining) ->
     [NodeTask | create_tasks(Tail, Index+Regular, Regular, Remaining)].
 
 createIndexList(Start, Start) ->
-    [];
+    Start;
 createIndexList(Start, End) ->
     [Start | createIndexList(Start+1, End)].
 
@@ -294,13 +296,13 @@ reset_table() ->
 	ets:delete(?ManagerTable),
 	ets:new(?ManagerTable, [named_table]).
 
-adb_map(_, [], _, _) ->
+adb_map(_, [], _, _, _) ->
 	[];
-adb_map(Database, [Index | Tail], Map, Settings) ->
-	Doc = get_document(Index, Settings),
+adb_map(Database, [Index | Tail], Map, DocList, Settings) ->
+	Doc = get_document(Index, DocList, Settings),
 	try Map(Doc) of
 		MapResult ->
-			[MapResult | adb_map(Database, Tail, Map, Settings)]
+			[MapResult | adb_map(Database, Tail, Map, DocList, Settings)]
 	catch
 		Error ->
 			throw({adb_map_error, Error, Index})
