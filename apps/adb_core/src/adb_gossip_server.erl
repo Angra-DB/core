@@ -2,10 +2,11 @@
 -behavior(gen_server).
 
 %% API
--export([start_link/0, get_count/0, stop/0, get/1, create/2, update/2, push/1, push/2, pull/1, pull/2]).
+-export([start_link/0, get_count/0, stop/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-export([get/1, create/2, create/3, create/4, update/2, sync/0, sync/1]).
 
 -define(SERVER, ?MODULE).
 
@@ -24,234 +25,225 @@ get_count() ->
 stop() ->
     get_server:cast(?SERVER, stop).
 
-create(Subject, Value) ->
-    gen_server:call(?SERVER, {create, {Subject, Value}}).
-
-update(Subject, Value) ->
-    gen_server:call(?SERVER, {update, {Subject, Value}}).
-
 get(Subject) ->
-    {ok, Value} = gen_server:call(?SERVER, {get, Subject}),
-    Value.
+    gen_server:call(?SERVER, {get, Subject}).
 
-push(Subject) ->
-    %% Ignore observer node.
-    Nodes = [X || X <- nodes(), not is_observer_node(X)],
-    case gen_server:call(?SERVER, {push, Subject, Nodes}) of
-        %% Only call the method again, if the subject is on "infected" state.
-        {ok, infected, Node} -> push(Subject, [X || X <- Nodes, X =/= Node]);
-        Result               -> Result
-    end.
+create(Subject, Value, UpCallback, CmpCallback) ->
+    gen_server:call(?SERVER, {create, {Subject, Value, [UpCallback], CmpCallback}}).
 
-push(_Subject, Nodes) when Nodes == [] -> ok;
-push(Subject, Nodes) ->
-    case gen_server:call(?SERVER, {push, Subject, Nodes}) of
-        %% Only call the method again, if the subject is on "infected" state.
-        {ok, infected, Node} -> push(Subject, [X || X <- Nodes, X =/= Node]);
-        Result               -> Result
-    end.
+create(Subject, Value, UpCallback) ->
+    gen_server:call(?SERVER, {create, {Subject, Value, [UpCallback], none}}).
 
-pull(Subject) ->
-    %% Ignore observer node.
-    Nodes = [X || X <- nodes(), not is_observer_node(X)],
-    case gen_server:call(?SERVER, {pull, Subject, Nodes}) of
-        %% Only call the method again, if the subject is on "infected" state.
-        {ok, infected, Node} -> pull(Subject, [X || X <- Nodes, X =/= Node]);
-        Result               -> Result
-    end.
+create(Subject, Value) ->
+    gen_server:call(?SERVER, {create, {Subject, Value, [], none}}).
 
-pull(_Subject, Nodes) when Nodes == [] -> ok;
-pull(Subject, Nodes) ->
-    case gen_server:call(?SERVER, {pull, Subject, Nodes}) of
-        %% Only call the method again, if the subject is on "infected" state.
-        {ok, infected, Node} -> pull(Subject, [X || X <- Nodes, X =/= Node]);
-        Result               -> Result
-    end.
+update(Subject, Changes) ->
+    gen_server:call(?SERVER, {update, {Subject, Changes}}).
+
+sync() -> sync(nodes()).
+
+sync([]) -> {warning, no_remote_nodes};
+sync(Nodes) ->
+    NotObsNodes = [X || X <- Nodes, not is_observer_node(X)],
+    iterate_sync(NotObsNodes).
 
 %% ============================================================================
 %% gen_server callbacks
 %% ============================================================================
 
 init(_Args) ->
-    lager:info("Initializing adb_gossip server.~n"),
-    {ok, #state{store = []}, 0}.
+    lager:info("Initializing adb_gossip_server.~n"),
+    %% Create ets store to store gossip state.
+    Store = ets:new(store, [set, public, named_table]),
+    {ok, #state{store = Store}, 0}.
 
-%% Handle "get" call.
+%% Handles "get" call.
 handle_call({get, Subject}, _From, State) ->
-    {reply, {ok, try_get_subject_store(Subject, State)}, State};
-
-%% Handle "create" call.
-handle_call({create, {Subject, Value}}, _From, State) ->
-    %% First, verify if the subject store exists.
-    case try_get_subject_store(Subject, State) of
-        none -> UpdatedState = add_subject_store(Subject, Value, State),
-                {reply, ok, UpdatedState};
-        Old  -> lager:warning("Tried to create a subject store, but it already exist.~n"),
-                {reply, {warning, maps:get(value, Old)}, State}
+    case ets:lookup(store, Subject) of 
+        []                 -> lager:warning("Tried to get subject ~p, but it doesn't exist.~n", [Subject]),
+                              {reply, {warning, not_found}, State};
+        [{Subject, Value}] -> {reply, {ok, Value}, State}
     end;
 
-%% Handle "update" call.
-handle_call({update, {Subject, Value}}, _From, State) ->
-    %% First, verify if the subject store exists.
-    case try_get_subject_store(Subject, State) of
-        none -> lager:error("Tried to update a subject store, but it does not exist.~n"),
-                {reply, notfound, State};
-        Old  -> UpdatedState = update_subject_store(Subject, Value, State),
-                {reply, {ok, maps:get(value, Old)}, UpdatedState}
+%% Handles "create" call.
+handle_call({create, {Subject, Value, UpCallbackList, CmpCallback}}, _From, State) ->
+    %% Verifies if the subject store exists.
+    case ets:lookup(store, Subject) of
+        []       -> NState = create_subject({Subject, Value, UpCallbackList, CmpCallback}, store),
+                    {reply, {ok, Subject}, NState};
+        [_Value] -> lager:warning("Tried to create a subject ~p, but it already exist.~n", [Subject]),
+                    {reply, {warning, already_exists}, State}
     end;
 
-%% Handle "push" call.
-handle_call({push, _Subject, Nodes}, _From, State) when Nodes == [] -> {reply, noremotenode, State};
-handle_call({push, Subject, Nodes}, _From, State) ->
-    %% First, verify if the subject store exists.
-    case try_get_subject_store(Subject, State) of
-        none   -> lager:error("No subject store was found."),
-                  {reply, notfound, State};
-        Value  -> TNode = adb_utils:choose_randomly(Nodes),
-                  TModule = {adb_gossip_server, TNode},
-                  TFunction = {handle_push, {Subject, Value}},
-                  case gen_server:call(TModule, TFunction) of 
-                      {ok, target_already_known}          -> NewState = update_subject_store_state(Subject, removed, State),
-                                                             {reply, {ok, removed}, NewState};
-                      {ok, target_updated}                -> {reply, {ok, infected, TNode}, State};
-                      {ok, {target_has_newer_info, Data}} -> NewState = update_subject_store(Subject, maps:get(value, Data), maps:get(timestamp, Data), State),
-                                                             {reply, {ok, infected, TNode}, NewState};
-                      _                                   -> larger:warning("Could not push to target node (~s).~n", [TNode]),
-                                                             {reply, error, State}
-                  end
-                  
+%% Handles "update" call.
+handle_call({update, {Subject, Params}}, _From, State) ->
+    %% Verifies if the subject store exists.
+    case ets:lookup(store, Subject) of
+        []                 -> lager:warning("Tried to get subject ~p, but it doesn't exist.~n", [Subject]),
+                              {reply, {warning, not_found}, State};
+        [{Subject, Store}] -> ets:delete(store, Subject),
+                              {ok, NewStore} = update_subject(Params, Store),
+                              Result = ets:insert(store, {Subject, NewStore}),
+                              {reply, {ok, Result}, State}
     end;
 
-%% Handle "handle_push" call.
-handle_call({handle_push, {Subject, Info}}, _From, State) ->
-    case try_get_subject_store(Subject, State) of
-        none  -> NewState = add_existing_subject_store(Subject, Info, State),
-                 spawn(fun() -> push(Subject) end),
-                 {reply, {ok, target_updated}, NewState};
-        Value -> case compare_subject_stores(Value, Info) of
-                    older -> NewState = update_subject_store(Subject, maps:get(value, Info), maps:get(timestamp, Info), State),
-                             spawn(fun() -> push(Subject) end),
-                             {reply, {ok, target_updated}, NewState};
-                    equal -> {reply, {ok, target_already_known}, State};
-                    newer -> {reply, {ok, {target_has_newer_info, Value}}, State}
-                 end
+%% Handles "sync" call.
+handle_call({sync, TNode}, _From, State) ->
+    lager:info("Syncing with ~p.~n", [TNode]),
+    Matches = ets:match(store, '$1'),
+    LocalStore = [X || [X] <- Matches],
+    TModule = {adb_gossip_server, TNode},
+    try gen_server:call(TModule, {handle_sync, LocalStore}) of
+        {ok, {even, []}}         -> {reply, {ok, even}, State};
+        {ok, {synced, []}}       -> {reply, {ok, synced}, State};
+        {ok, {synced, Changes}}  -> {ok, _} = apply_changes(Changes, store),
+                                    {reply, {ok, synced}, State};
+        {error, Reason}          -> lager:error("Could not sync with node ~p: ~p", [TNode, Reason]),
+                                    {reply, {error, Reason}, State}
+    catch
+        _Class:Err -> lager:error("Could not sync with node ~p: ~p", [TNode, Err]),
+                      {reply, {error, Err}, State}
     end;
 
-%% Handle "pull" call.
-handle_call({pull, _Subject, Nodes}, _From, State) when Nodes == [] -> {reply, noremotenode, State};
-handle_call({pull, Subject, Nodes}, _From, State) ->
-    %% First, varify if the subject store exists.
-    case try_get_subject_store(Subject, State) of
-        none  -> TNode = adb_utils:choose_randomly(Nodes),
-                 TModule = {adb_gossip_server, TNode},
-                 TFunction = {handle_pull, {Subject, none}},
-                 case gen_server:call(TModule, TFunction) of
-                     {ok, target_has_same_info}          -> {reply, {ok, removed}, State};
-                     {ok, {target_has_newer_info, Data}} -> NewState = add_existing_subject_store(Subject, Data, State),
-                                                            {reply, {ok, infected, TNode}, NewState};
-                     _                                   -> lager:warning("Could not pull from target node (~s).~n", [TNode]),
-                                                            {reply, error, State}
-                 end;
-        Value -> TNode = adb_utils:choose_randomly(Nodes),
-                 TModule = {adb_gossip_server, TNode},
-                 TFunction = {handle_pull, {Subject, Value}},
-                 case gen_server:call(TModule, TFunction) of
-                     {ok, target_has_same_info}          -> NewState = update_subject_store_state(Subject, removed, State),
-                                                            {reply, {ok, removed}, NewState};
-                     {ok, target_has_older_info}         -> NewState = update_subject_store_state(Subject, removed, State),
-                                                            {reply, {ok, removed}, NewState};
-                     {ok, {target_has_newer_info, Data}} -> NewState = update_subject_store(Subject, maps:get(value, Data), maps:get(timestamp, Data), State),
-                                                            {reply, {ok, infected, TNode}, NewState};
-                     _                                   -> lager:warning("Could not pull from target node (~s).~n", [TNode]),
-                                                            {reply, error, State}
-                end
+%% Handles "handle_sync" call.
+handle_call({handle_sync, RemoteStore}, _From, State) ->
+    Matches = ets:match(store, '$1'),
+    LocalStore = [X || [X] <- Matches],
+    case diff(LocalStore, RemoteStore) of 
+        {ok, {[], []}}        -> {reply, {ok, {even, []}}, State};
+        {ok, {Local, Remote}} -> {ok, _} = apply_changes(Local, store),
+                                 {reply, {ok, {synced, Remote}}, State};
+        {error, Reason}       -> {reply, {error, Reason}, State}
     end;
 
-%% Handle "handle_pull" call.
-handle_call({handle_pull, {Subject, none}}, _From, State) ->
-    case try_get_subject_store(Subject, State) of
-        none  -> {reply, {ok, target_has_same_info}, State};
-        Value -> {reply, {ok, {target_has_newer_info, Value}}, State}
-    end;
-handle_call({handle_pull, {Subject, Info}}, _From, State) ->
-    case try_get_subject_store(Subject, State) of
-        none -> NewState = add_existing_subject_store(Subject, Info, State),
-                spawn(fun() -> pull(Subject) end),
-                {reply, {ok, target_has_older_info}, NewState};
-        Value -> case compare_subject_stores(Value, Info) of
-                    older -> NewState = update_with_existing_store(Subject, Info, State),
-                             spawn(fun() -> pull(Subject) end),
-                             {reply, {ok, target_has_older_info}, NewState};
-                    equal -> {reply, {ok, target_has_same_info}, State};
-                    newer -> {reply, {ok, {target_has_newer_info, Value}}, State}
-                 end
-    end;
 handle_call(Msg, _From, State) ->
     {reply, {ok, Msg}, State}.
 
 handle_cast(stop, State) ->
     {stop, normal, State}.
 
-handle_info(_Into, State) ->
+handle_info(_Into, State) -> 
     {noreply, State}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, _State) -> 
     ok.
 
-code_change(_OldVsn, State, _Extra) ->
+code_change(_OldVsn, State, _Extra) -> 
     {ok, State}.
 
 %%==============================================================================
 %% Internal functions
 %%==============================================================================
+ 
+diff(LocalStore, RemoteStore) -> 
+    diff(LocalStore, RemoteStore, [], []).
 
-try_get_subject_store(Subject, State) ->
-    proplists:get_value(Subject, State#state.store, none).
+diff([], [], LocalChanges, RemoteChanges) -> 
+    {ok, {LocalChanges, RemoteChanges}};
+diff([LocalStore|Rest], [], LocalChanges, RemoteChanges) ->
+    NRemoteChanges = lists:append(RemoteChanges, [LocalStore]),
+    diff(Rest, [], LocalChanges, NRemoteChanges);
+diff([], [RemoteStore|Rest], LocalChanges, RemoteChanges) ->
+    NLocalChanges = lists:append(LocalChanges, [RemoteStore]),
+    diff([], Rest, NLocalChanges, RemoteChanges);
+diff([{Key, LStore}|Rest], RemoteStore, LocalChanges, RemoteChanges) ->
+    case proplists:get_value(Key, RemoteStore, none) of 
+        none   -> NRemoteChanges = lists:append(RemoteChanges, [{Key, LStore}]),
+                  diff(Rest, RemoteStore, LocalChanges, NRemoteChanges);
+        RStore -> {LStoreDiff, RStoreDiff} = store_diff(LStore, RStore),
+                  NRemoteStore = proplists:delete(Key, RemoteStore),
+                  lager:warning("Local  > ~p;~n", [LStoreDiff]),
+                  lager:warning("Remote > ~p;~n", [RStoreDiff]),
+                  NLocalChanges = case LStoreDiff of
+                      []    -> LocalChanges;
+                      LDiff -> lists:append(LocalChanges, [{Key, LDiff}])
+                  end,
+                  NRemoteChanges = case RStoreDiff of 
+                      []    -> RemoteChanges;
+                      RDiff -> lists:append(RemoteChanges, [{Key, RDiff}])
+                  end,
+                  diff(Rest, NRemoteStore, NLocalChanges, NRemoteChanges)
+    end.
 
-add_existing_subject_store(Subject, SubjectStore, State) ->
-    #state{store = [{Subject, SubjectStore} | State#state.store]}.
+store_diff(LocalStore, RemoteStore) -> 
+    %% Strategy: always trust that the two stores use the same compare function.
+    Compare = case maps:get(compare_callback, LocalStore, none) of 
+        none    -> fun default_compare_stores/2;
+        CmpFunc -> CmpFunc
+    end,
+    case Compare(LocalStore, RemoteStore) of 
+        equal -> {[], []};
+        older -> {[{value, maps:get(value, RemoteStore)}, {timestamp, maps:get(timestamp, RemoteStore)}], []};
+        newer -> {[], [{value, maps:get(value, LocalStore)}, {timestamp, maps:get(timestamp, LocalStore)}]}
+    end.
 
-add_subject_store(Subject, Value, State) ->
-    #state{store = [create_subject_store(Subject, Value) | State#state.store]}.
-    
-update_with_existing_store(Subject, SubjectStore, State) ->
-    Store = proplists:delete(Subject, State#state.store),
-    #state{store = [{Subject, SubjectStore} | Store]}.
+apply_changes([], _)          -> {ok, updated};
+apply_changes([{Key, NewStore}|Rest], Store) when is_map(NewStore) ->
+    case ets:lookup(Store, Key) of 
+        []       -> ets:insert(Store, {Key, NewStore});
+        [_Value] -> ets:delete(Store, Key),
+                    ets:insert(Store, {Key, NewStore})
+    end,
+    apply_changes(Rest, Store);
+apply_changes([{Key, Changes}|Rest], Store)  when is_list(Changes) ->
+    case ets:lookup(Store, Key) of 
+        []              -> lager:error("Store ~p not found.", [Key]),
+                           {error, not_found};
+        [{Key, LValue}] -> ets:delete(Store, Key),
+                           {ok, NValue} = apply_changes_on_store(LValue, Changes),
+                           %% Call Update callbacks
+                           UpCallbacks = maps:get(update_callback_list, NValue),
+                           execute_callbacks(UpCallbacks, maps:get(value, NValue)),
+                           ets:insert(Store, {Key, NValue}),
+                           apply_changes(Rest, Store)
+    end.
 
-update_subject_store(Subject, Value, State) ->
-    Store = proplists:delete(Subject, State#state.store),
-    #state{store = [create_subject_store(Subject, Value) | Store]}.
+apply_changes_on_store(Store, [])                       -> {ok, Store};
+apply_changes_on_store(OldStore, [{Field, Value}|Rest]) ->
+    NewStore = maps:update(Field, Value, OldStore),
+    apply_changes_on_store(NewStore, Rest).
 
-update_subject_store(Subject, Value, Timestamp,  State) ->
-    Store = proplists:delete(Subject, State#state.store),
-    #state{store = [create_subject_store(Subject, Value, Timestamp) | Store]}.
+execute_callbacks(UpCallbacks, Value) ->
+    execute_callbacks(UpCallbacks, Value, []).
 
-update_subject_store_state(Subject, StoreState, State) ->
-    OlderSubjectStore = try_get_subject_store(Subject, State),
-    NewSubjectStore = {Subject,
-        #{value     => maps:get(value, OlderSubjectStore),
-          state     => StoreState,
-          timestamp => maps:get(timestamp, OlderSubjectStore)}},
-    #state{store = lists:keyreplace(Subject, 1, State#state.store, NewSubjectStore)}.
+execute_callbacks([], _, Pids) -> {ok, Pids};
+execute_callbacks([UpCallback|Rest], NewValue, Pids) -> 
+    Pid = spawn(fun() ->UpCallback(NewValue) end),
+    execute_callbacks(Rest, NewValue, [Pid|Pids]).
 
-create_subject_store(Subject, Value) ->
-    {Subject,
-        #{value     => Value,
-         state     => infected,
-         timestamp => os:timestamp()}
-    }.
+create_subject({Subject, Value, UpCallbackList, CmpCallback}, Store) ->
+    NewStore = {Subject, 
+        #{value                => Value,
+          timestamp            => os:timestamp(),
+          update_callback_list => UpCallbackList,
+          compare_callback     => CmpCallback}},
+    Result = ets:insert(Store, NewStore),
+    {ok, Result}.
 
-create_subject_store(Subject, Value, Timestamp) ->
-    {Subject,
-        #{value     => Value,
-         state     => infected,
-         timestamp => Timestamp}
-    }.
+update_subject([], Store)                  -> {ok, Store};
+update_subject([{Key, Value}|Rest], Store) -> 
+    case maps:get(Key, Store, none) of
+        none   -> lager:warning("The key ~p was not found store.~n", [Key]),
+                  {warning, key_not_found};
+        _Value -> NewStore = maps:update(Key, Value, Store),
+                  update_subject(Rest, NewStore)
+    end.
 
-get_node_by_reference({Pid, _Tag}) ->
-    node(Pid).
+is_observer_node(Node) ->
+    NodeName = atom_to_list(Node),
+    [Name|_Host] = string:split(NodeName, "@"),
+    Name =:= "observer".
 
-compare_subject_stores(StoreOne, StoreTwo) ->
+iterate_sync(Nodes) ->
+    TNode = adb_utils:choose_randomly(Nodes),
+    Rest = [X || X <- Nodes, X =/= TNode],
+    case gen_server:call(?SERVER, {sync, TNode}) of 
+        {ok, synced} when Rest =/= [] -> iterate_sync(Rest);
+        {error, _}   when Rest =/= [] -> iterate_sync(Rest);
+        _Result                       -> {ok, synced}
+    end.
+
+default_compare_stores(StoreOne, StoreTwo) ->
     StoreOneTsp = maps:get(timestamp, StoreOne),
     StoreTwoTsp = maps:get(timestamp, StoreTwo),
     MinTsp = min(StoreOneTsp, StoreTwoTsp),
@@ -259,12 +251,4 @@ compare_subject_stores(StoreOne, StoreTwo) ->
         StoreTwoTsp -> equal;
         MinTsp      -> older;
         _           -> newer
-    end.
-
-is_observer_node(Node) ->
-    NodeName = atom_to_list(Node),
-    [Name | _Host] = string:split(NodeName, "@"),
-    case Name of
-        "observer" -> true;
-        _          -> false
     end.
