@@ -36,7 +36,7 @@
 -import(adbtree, [get_header/1, read_doc/2, doc_count/1, doc_list/1]).
 -import(jsone, [decode/2]).
 
--import(adb_mr_tests, [map1/1]).
+%-import(adb_mr_tests, [map1/1]).
 
 % Public functions:
 
@@ -329,4 +329,10 @@ adb_reduce([Head | Tail], Reduce) ->
 	end.
 
 simpleCall(Pid) ->
-	gen_server:call({high, Pid}, {mr, fun adb_mr_tests:map1/1}).
+	% Map2 = fun() ->
+	% 	25000 end,
+	% Map1 = fun ([Head | Tail]) ->
+	% 		%io:format("Normal."),
+	% 		Head% + Map(Tail)
+	% 		end,
+	gen_server:call({high, Pid}, {mr, fun ([Head | _]) -> io:format("Normal."), Head end}).
