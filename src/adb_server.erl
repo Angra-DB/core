@@ -11,6 +11,7 @@
 -module(adb_server).
 -include_lib("eunit/include/eunit.hrl").
 -include("gen_authentication.hrl").
+-include("gen_authorization.hrl").
 
 -behavior(gen_server).
 
@@ -18,7 +19,7 @@
 % API functions
 %
 
--export([ start_link/3
+-export([ start_link/4
 , get_count/0   % we can understand both get_count and stop as adm operations
 , stop/0]).
 
@@ -34,9 +35,9 @@
 
 -define(SERVER, ?MODULE).      % declares a SERVER macro constant (?MODULE is the module's name)
 
-% persistence (the persistence setup and its configurations), authentication_setup (the authentication scheme and its configurations),
-% authentication_status (the authentication current status of this specific connection)
--record(state, {lsock, persistence, parent, current_db = none, authentication_setup, authentication_status = {?LoggedOut, none}}). % a record for keeping the server state
+% persistence_setup (the persistence scheme and its configurations), authentication_setup (the authentication scheme and its configurations),
+% authentication_status (the authentication current status of this specific connection), authorization_setup (the authorization scheme and its configurations)
+-record(state, {lsock, persistence_setup, parent, current_db = none, authentication_setup, authentication_status = {?LoggedOut, none}, authorization_setup}). % a record for keeping the server state
 
 %%%======================================================
 %%% API
@@ -47,8 +48,8 @@
 %%% is a bit trick.
 %%%======================================================
 
-start_link(LSock, Persistence, Authentication) ->
-    gen_server:start_link(?MODULE, [LSock, Persistence, Authentication], []).
+start_link(LSock, Persistence, Authentication, Authorization) ->
+    gen_server:start_link(?MODULE, [LSock, Persistence, Authentication, Authorization], []).
 
 get_count() ->
     gen_server:call(?SERVER, get_count).
@@ -60,8 +61,8 @@ stop() ->
 %%% gen_server callbacks
 %%%===========================================
 
-init([LSock, Persistence, Authentication]) ->
-    {ok, #state{lsock = LSock, persistence = Persistence, authentication_setup = Authentication}, 0}.
+init([LSock, Persistence, Authentication, Authorization]) ->
+    {ok, #state{lsock = LSock, persistence_setup = Persistence, authentication_setup = Authentication, authorization_setup = Authorization}, 0}.
 
 handle_call(Msg, _From, State) ->
     {reply, {ok, Msg}, State}.
@@ -102,8 +103,12 @@ code_change(_OldVsn, State, _Extra) ->
 %   delete <Id>
 %   query_term
 %
-%   login <user_name> <<user_password>>
+%   login <user_name> <user_password>
 %   logout
+%
+%   grant_permission <username> <permission>     (the format of the permission depends on the Authorization scheme)
+%   revoke_permission <username>
+%   show_permission <username>
 %%% =========================================================
 process_request(Socket, State, RawData) ->
     try
@@ -114,11 +119,27 @@ process_request(Socket, State, RawData) ->
     end.
 
 evaluate_request(Socket, State, Tokens) ->
-    {Logged, _UserAuthStatus} = State#state.authentication_status,
+    {Logged, User_auth_info} = State#state.authentication_status,
+    {Authorization_scheme, _Authorization_settings} = State#state.authorization_setup,
+    {Persistence_scheme, _Persistence_settings} = State#state.persistence_setup,
 
     case Logged of
-        ?LoggedIn -> evaluate_authenticated_request(Socket, State, Tokens);
-        ?LoggedOut -> evaluate_not_authenticated_request(Socket, State, Tokens)
+        ?LoggedIn ->
+            case gen_authorization:request_permission(Authorization_scheme, Persistence_scheme, State#state.current_db, User_auth_info#authentication_info.username, Tokens) of
+                {?Granted, _} ->
+                    evaluate_authenticated_request(Socket, State, Tokens);
+                {?Forbidden, ForbiddanceInfo} ->
+                    case ForbiddanceInfo of
+                        databaseNotSet ->
+                            gen_tcp:send(Socket, io_lib:fwrite("For this action to be performed, you first need to connect to a database. Please use the command 'connect [db_name]'.~n", [])),
+                            State;
+                        _ ->
+                            gen_tcp:send(Socket, io_lib:fwrite("You are not authorized to perform this action. (Forbiddance info: ~p)~n", [ForbiddanceInfo])),
+                            State
+                    end
+            end;
+        ?LoggedOut ->
+            evaluate_not_authenticated_request(Socket, State, Tokens)
     end.
 
 evaluate_authenticated_request(Socket, State, Tokens) ->
@@ -129,15 +150,21 @@ evaluate_authenticated_request(Socket, State, Tokens) ->
             State;
         {"logout", _} ->
             logout(Socket, State);
+        {"grant_permission", Grant_args} ->
+            grant_permission(Socket, State, Grant_args);
+        {"revoke_permission", Revoke_args} ->
+            revoke_permission(Socket, State, Revoke_args);
+        {"show_permission", Show_permission_args} ->
+            show_permission(Socket, State, Show_permission_args);
         {"connect", Database} ->
             connect(Socket, State, Database);
         {"register", {Username, Password}} ->
             register(Socket, State, Username, Password);
         {"create_db", Database} ->
-            persist(Socket, State#state.persistence, Database, Tokens),
+            persist(Socket, State#state.persistence_setup, Database, Tokens),
             State;
         _ ->
-            persist(Socket, State#state.persistence, State#state.current_db, Tokens),
+            persist(Socket, State#state.persistence_setup, State#state.current_db, Tokens),
             State
     end.
 
@@ -152,26 +179,67 @@ evaluate_not_authenticated_request(Socket, State, Tokens) ->
         {"register", {Username, Password}} ->
             register(Socket, State, Username, Password);
         _ ->
-            gen_tcp:send(Socket, io_lib:fwrite("You are not logged in yet. To do so, use the command 'login [user_name] [password]'~n", [])),
+            gen_tcp:send(Socket, io_lib:fwrite("You are not logged in yet. To do so, use the command 'login [user_name] [password]'. On other hand, to create a new user, use 'register [user_name] [password]' ~n", [])),
             State
     end.
 
+%
+% grants some permission for a given user (the args depend on the Authorization scheme)
+%
+grant_permission(Socket, State, Grant_args) ->
+    {Authorization_scheme, _Authorization_Settings} = State#state.authorization_setup,
+    {Persistence_scheme, _Persistence_settings} = State#state.persistence_setup,
+    case gen_authorization:grant_permission(Authorization_scheme, Persistence_scheme, State#state.current_db, Grant_args) of
+        {ok, ExtraInfo} ->
+            gen_tcp:send(Socket, io_lib:fwrite("Permission granted successfully (~p)...~n", [ExtraInfo]));
+        {error, FailureInfo} ->
+            gen_tcp:send(Socket, io_lib:fwrite("Permission could not be granted. Error: ~p~n", [FailureInfo]))
+    end,
+    State.
+
+%
+% grants some permission for a given user (the args depend on the Authorization scheme)
+%
+revoke_permission(Socket, State, Revoke_args) ->
+    {Authorization_scheme, _Authorization_Settings} = State#state.authorization_setup,
+    {Persistence_scheme, _Persistence_settings} = State#state.persistence_setup,
+    case gen_authorization:revoke_permission(Authorization_scheme, Persistence_scheme, State#state.current_db, Revoke_args) of
+        {ok, ExtraInfo} ->
+            gen_tcp:send(Socket, io_lib:fwrite("Permission revoked successfully for the specified user. (~p)~n", [ExtraInfo]));
+        {error, FailureInfo} ->
+            gen_tcp:send(Socket, io_lib:fwrite("Permission could not be revoked. Error: ~p~n", [FailureInfo]))
+    end,
+    State.
+
+%
+% show the permission of a given user (the args depend on the Authorization scheme)
+%
+show_permission(Socket, State, Show_permission_args) ->
+    {Authorization_scheme, _Authorization_Settings} = State#state.authorization_setup,
+    {Persistence_scheme, _Persistence_settings} = State#state.persistence_setup,
+    case gen_authorization:show_permission(Authorization_scheme, Persistence_scheme, State#state.current_db, Show_permission_args) of
+        {ok, Permission} ->
+            gen_tcp:send(Socket, io_lib:fwrite("The permission of the given user upon ~p is ~p.~n", [State#state.current_db, Permission]));
+        {error, FailureInfo} ->
+            gen_tcp:send(Socket, io_lib:fwrite("Permission could not be fetched. Error: ~p~n", [FailureInfo]))
+    end,
+    State.
 
 %
 % logs in using a given auth scheme (default: adb_authentication)
 %
 login(Socket, State, Username, Password) ->
-    {Auth_scheme, _Settings} = State#state.authentication_setup,
-    {Persistence_scheme, _Persistence_settings} = State#state.persistence,
-    lager:debug("adb_server -- User ~p trying to log in... Auth Scheme: ~p. Persistence Scheme: ~p ~n", [Username, Auth_scheme, Persistence_scheme]),
-    LoginResult = gen_authentication:process_request(login, Auth_scheme, Username, Password, none, Persistence_scheme),
+    {Authentication_scheme, _Authentication_Settings} = State#state.authentication_setup,
+    {Persistence_scheme, _Persistence_settings} = State#state.persistence_setup,
+    lager:debug("adb_server -- User ~p trying to log in... Auth Scheme: ~p. Persistence Scheme: ~p ~n", [Username, Authentication_scheme, Persistence_scheme]),
+    LoginResult = gen_authentication:process_request(login, Authentication_scheme, Username, Password, none, Persistence_scheme),
     case LoginResult of
         {?LoggedIn, _AuthenticationInfo} ->
             gen_tcp:send(Socket, io_lib:fwrite("User ~p logged in successfully...~n", [Username]));
         {?LoggedOut, FailureInfo} ->
             case FailureInfo of
                 ?ErrorInvalidPasswordOrUsername ->
-                    gen_tcp:send(Socket, io_lib:fwrite("Log in failed. You have entered an invalid username or password...~n", []));
+                    gen_tcp:send(Socket, io_lib:fwrite("Log in failed. You have entered an invalid username or password... If you would like to create a new user, use the command 'register [user_name] [password]'~n", []));
                 Error ->
                     gen_tcp:send(Socket, io_lib:fwrite("An internal error occurred while trying to log in. Error: ~p~n", [Error]))
             end
@@ -184,8 +252,9 @@ login(Socket, State, Username, Password) ->
 % logs out using a given auth scheme (default: adb_authentication)
 %
 logout(Socket, State) ->
-    {Auth_scheme, _Settings} = State#state.authentication_setup,
-    NewState = State#state{ authentication_status = gen_authentication:process_request(logout, Auth_scheme, none, none, State#state.authentication_status, none)},
+    {Authentication_scheme, _Settings} = State#state.authentication_setup,
+    % update the following field of the State: current_db (to 'none') and authentication_status (remove the ?LoggedIn status and the previous user's information)
+    NewState = State#state{ current_db = none, authentication_status = gen_authentication:process_request(logout, Authentication_scheme, none, none, State#state.authentication_status, none)},
     {_Status, AuthInfo} = State#state.authentication_status,
     lager:debug("adb_server -- User ~p logged out.", [AuthInfo#authentication_info.username]),
     gen_tcp:send(Socket, io_lib:fwrite("User logged out...~n", [])),
@@ -195,10 +264,10 @@ logout(Socket, State) ->
 % registers a user with a given auth and persistence scheme
 %
 register(Socket, State, Username, Password) ->
-    {Auth_scheme, _Auth_settings} = State#state.authentication_setup,
-    {Persistence_scheme, _Persistence_settings} = State#state.persistence,
-    lager:debug("adb_server -- Trying to register user ~p... Auth Scheme: ~p ~n", [Username, Auth_scheme]),
-    case gen_authentication:process_request(register, Auth_scheme, Username, Password, none, Persistence_scheme) of
+    {Authentication_scheme, _Auth_settings} = State#state.authentication_setup,
+    {Persistence_scheme, _Persistence_settings} = State#state.persistence_setup,
+    lager:debug("adb_server -- Trying to register user ~p... Auth Scheme: ~p ~n", [Username, Authentication_scheme]),
+    case gen_authentication:process_request(register, Authentication_scheme, Username, Password, none, Persistence_scheme) of
         {ok, _} ->
             gen_tcp:send(Socket, io_lib:fwrite("User ~p registered...~n", [Username]));
         {error, Error} ->
@@ -210,7 +279,7 @@ register(Socket, State, Username, Password) ->
 % connects to an existing database.
 %
 connect(Socket, State, Database) ->
-    {Persistence, Settings} = State#state.persistence,
+    {Persistence, Settings} = State#state.persistence_setup,
     Res = gen_persistence:process_request(connect, Database, Database, Persistence, Settings),
     case Res of
         db_does_not_exist ->
@@ -244,11 +313,12 @@ preprocess(RawData) ->
 			["save_key"] -> {Command, split(Args)};
 			["login"] -> {Command, split(Args)};
 			["register"] -> {Command, split(Args)};
+			["grant_permission"] -> {Command, split(Args)};
       _          -> {Command, Args}
     end.
 
 filter_command(Command) ->
-    ValidCommands = ["save", "save_key", "lookup", "update", "delete", "connect", "create_db", "delete_db", "query_term", "login", "logout", "register"],
+    ValidCommands = ["save", "save_key", "lookup", "update", "delete", "connect", "create_db", "delete_db", "query_term", "login", "logout", "register", "grant_permission", "revoke_permission", "show_permission"],
     [X || X <- ValidCommands, X =:= Command].
 
 split(Str) ->

@@ -25,16 +25,18 @@ start_link(LSock) ->
 start_link(LSock, Args) ->
     Persistence = setup_persistence(Args),
     Authentication = setup_authentication(Args),
-    supervisor:start_link({local, ?SERVER}, ?MODULE, [LSock, Persistence, Authentication]).
+    Authorization = setup_authorization(Args),
+    supervisor:start_link({local, ?SERVER}, ?MODULE, [LSock, Persistence, Authentication, Authorization]).
 
 start_child() ->
     supervisor:start_child(?SERVER, []).
 
-init([LSock, Persistence, Authentication]) ->
+init([LSock, Persistence, Authentication, Authorization]) ->
   lager:info("Initializing server_sup...", []),
   gen_authentication:start(Authentication, Persistence),
+  gen_authorization:start(Authorization, Persistence),
 
-  Server = {adb_server, {adb_server, start_link, [LSock, Persistence, Authentication]}, % {Id, Start, Restart, ... }
+  Server = {adb_server, {adb_server, start_link, [LSock, Persistence, Authentication, Authorization]}, % {Id, Start, Restart, ... }
       temporary, brutal_kill, worker, [adb_server]},
   RestartStrategy = {simple_one_for_one, 1000, 3600},  % {How, Max, Within} ... Max restarts within a period
   {ok, {RestartStrategy, [Server]}}.
@@ -59,4 +61,12 @@ setup_authentication(Args) ->
     {{name, _}, Settings } ->
       lager:info("starting ADB Authentication..."),
       {adb_authentication, Settings}
+  end.
+
+setup_authorization(Args) ->
+  lager:info("Setting up the authorization module.", []),
+  case proplists:get_value(authorization, Args) of
+    {{name, _}, Settings } ->
+      lager:info("starting Simple Authorization..."),
+      {simple_authorization, Settings}
   end.

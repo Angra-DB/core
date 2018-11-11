@@ -19,12 +19,10 @@ teardown(_) ->
     ok.
 
 save(DbName, Key, Value) ->
-    lager:debug("adbtree_persistence -- Saving doc with key ~p...~n", [list_to_integer(Key, 16)]),
     {ok, {key, NewKey}, {ver, _Version}} = writer:save(atom_to_list(DbName), list_to_binary(Value), list_to_integer(Key, 16)),
     integer_to_list(NewKey, 16).
 
 lookup(DbName, Key) ->
-    lager:debug("adbtree_persistence -- Looking up for doc with key ~p...~n", [list_to_integer(Key, 16)]),
     {ok, Pid} = reader_sup:start_child(atom_to_list(DbName)),
     case reader:lookup(Pid, list_to_integer(Key, 16)) of
         {ok, _Version, Doc} ->

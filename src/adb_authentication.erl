@@ -10,8 +10,17 @@
 	init/2,
 	login/3,
 	logout/1,
-	register/3
+	register/3,
+	get_hash_as_hex/2,
+	get_hash_as_hex/1
 ]).
+
+
+% Currently, the module adb_authentication saves one document for each user, with the hash (md5) of the username as key
+% of this document, and these documents are saved inside a DB named ?AuthenticationDBName. These documents store informations
+% such as the user's password (appended with a salt, and hashed with pbkdf2, with the parameters descripted in adb_authentication.hrl) and
+% the salt (more information can be added in the future).
+
 
 % initializes the adb_authentication module. It creates a db for the users' authentication infos, if it does
 % not exist (that is why it needs to know the persistence setup).
@@ -19,13 +28,13 @@ init(_Authentication_settings, {Persistence_scheme, Persistence_settings}) ->
 	lager:debug("adb_authentication -- Initializing adb_authentication module...", []),
 	case gen_persistence:process_request(connect, none, ?AuthenticationDBName, Persistence_scheme, Persistence_settings) of
 		ok ->
-			lager:debug("adb_authentication -- AuthenticationDatabase found and connected...", []),
+			lager:debug("adb_authentication -- ~p found and connected...", [?AuthenticationDBName]),
 			ok;
 		db_does_not_exist ->
-			lager:debug("adb_authentication -- AuthenticationDatabase not found, creating a new one...", []),
+			lager:debug("adb_authentication -- ~p not found, creating a new one...", [?AuthenticationDBName]),
 			gen_persistence:process_request(create_db, none, ?AuthenticationDBName, Persistence_scheme, Persistence_settings);
 		Error ->
-			lager:debug("adb_authentication -- Error while trying to connect to AuthenticationDatabase: ~p", [Error]),
+			lager:debug("adb_authentication -- Error while trying to connect to ~p: ~p", [?AuthenticationDBName, Error]),
 			Error
 	end.
 
