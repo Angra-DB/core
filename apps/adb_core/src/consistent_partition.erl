@@ -53,22 +53,22 @@ delete(Database, {Key, HashFunc}) ->
 %%==============================================================================
 
 map_key(HashFunc, Key) ->
-    {ok, HashSize} = validate_hash(HashFunc),
+    {ok, SpaceSize} = validate_hash(HashFunc),
     HashKey = crypto:bytes_to_integer(crypto:hash(HashFunc, Key)),
-    {ok, {PartSize, TargetVNode}} = find_target_vnode(HashSize, HashKey),
+    {ok, {PartSize, TargetVNode}} = find_target_vnode(SpaceSize, HashKey),
     {ok, Target} = find_target(PartSize, TargetVNode, HashKey),
     {ok, {HashKey, Target, TargetVNode}}.
 
 validate_hash(HashFunc) ->
     case proplists:lookup(HashFunc, ?HASH_SPACES) of
         none     -> {error, invalid_hash};
-        HashSize -> math:pow(2, HashSize),
-                    {ok, HashSize}
+        HashSize -> SpaceSize = math:pow(2, HashSize),
+                    {ok, SpaceSize}
     end.
 
-find_target_vnode(HashSize, HashKey) when is_integer(HashSize) ->
+find_target_vnode(SpaceSize, HashKey) when is_integer(SpaceSize) ->
     {ok, VNodes} = adb_dist_store:get_config(vnodes),
-    PartSize = HashSize / VNodes,
+    PartSize = SpaceSize / VNodes,
     [VNodeId|_] = lists:filter(fun(X) -> HashKey =< (PartSize * X) end, lists:seq(1, VNodes)), %% Forces to always return the first Id that satify the predicate.
     {ok, VNodeId}.
 

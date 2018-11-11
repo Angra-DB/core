@@ -68,7 +68,7 @@ search_for_node(mono, _) ->
     none.
 
 configure_dist({dist, Host}, none) ->
-    Name = list_to_atom(adb_utils:gen_name() ++ "@" ++ Host),
+    Name = list_to_atom(adb_utils:gen_name() ++ "@" ++ atom_to_list(Host)),
     case net_kernel:start([Name, longnames]) of
         {ok, _Pid}       -> lager:info("Application starting on longname distributed mode."),
                             {ok, dist};
@@ -77,7 +77,7 @@ configure_dist({dist, Host}, none) ->
                             {ok, mono}
     end;
 configure_dist({dist, Host}, RemoteNode) ->
-    Name = list_to_atom(adb_utils:gen_name() ++ "@" ++ Host),
+    Name = list_to_atom(adb_utils:gen_name() ++ "@" ++ atom_to_list(Host)),
     case net_kernel:start([Name, longnames]) of
         {ok, _Pid}      -> lager:info("Application starting on longname distributed mode."),
                            net_kernel:connect_node(RemoteNode),
@@ -94,7 +94,7 @@ configure_dist(_, _) ->
 
 start_node() ->
     {ok, Host} = adb_utils:get_env("ADB_HOST"),
-    TempName = list_to_atom("temp" ++ adb_utils:gen_name() ++ "@" ++ Host),
+    TempName = list_to_atom("temp" ++ adb_utils:gen_name() ++ "@" ++ atom_to_list(Host)),
     case node() of
         nonode@nohost -> net_kernel:start([TempName, longnames]),
                          TempName;

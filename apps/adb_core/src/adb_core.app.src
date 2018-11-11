@@ -1,23 +1,17 @@
 {application, adb_core, [
  {description, "The angra-db core persistence service."},
- {vsn, "0.0.1"},
+ {vsn, "0.1.0"},
  {modules, []},
  {registered, [adb_sup]},
  {applications, [kernel, stdlib, lager]},
- {env, [
-    {"ADB_PORT", 1234},                  %% Default port on which the server will listen at this node.
-    {"ADB_HOST", "127.0.0.1"}            %% Default hostname on which this node will be identified on dist mode.
- ]},
- {mod,
-    {adb_app, [
-        {persistence, adbtree},         %% {persistence, ets | hanoidb | adbtree}
-        {distribution, dist},           %% {distribution, dist | mono}
-        {partition, full},              %% {partition, full | {consistent, <hash_func>}}
-        {replication, 3},               %% Number of copies
-        {write_quorum, 2},              %% Number of successful writes needed to consider the operation valid.
-        {read_quorum, 2},               %% Number of successful reads needed to consider the operation valid.
-        {vnodes, 3},                    %% Number of vnodes
-        {gossip_interval, 60000}        %% Gossip Interval (milliseconds)
-    ]}
- }
-]}.
+ {env, [{'ADB_PORT', 1234},                  %% Default port on which the server will listen at this node.
+        {'ADB_HOST', '127.0.0.1'}]},         %% Default hostname on which this node will be identified on dist mode.
+ {mod, {adb_app, 
+        [{persistence, adbtree},         %% {persistence, ets | hanoidb | adbtree}
+         {distribution, dist},           %% {distribution, dist | mono}
+         {partition, full},              %% {partition, full | {consistent, <hash_func>}}
+         {replication, 3},               %% Number of copies
+         {write_quorum, 2},              %% Number of successful writes needed to consider the operation valid.
+         {read_quorum, 2},               %% Number of successful reads needed to consider the operation valid.
+         {vnodes, 3},                    %% Number of vnodes
+         {gossip_interval, 60000}]}}]}.  %% Gossip Interval (milliseconds)

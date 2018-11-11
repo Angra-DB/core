@@ -4,13 +4,13 @@
 
 get_env(EnvVar) ->
     case os:getenv(EnvVar, none) of
-        none  -> application:get_env(EnvVar);
+        none  -> application:get_env(list_to_atom(EnvVar));
         Value -> {ok, Value}
     end.
 
 get_env(EnvVar, Default) ->
      case os:getenv(EnvVar, none) of
-        none  -> case application:get_env(EnvVar) of
+        none  -> case application:get_env(list_to_atom(EnvVar)) of
                     undefined -> Default;
                     Value     -> Value
                  end;
