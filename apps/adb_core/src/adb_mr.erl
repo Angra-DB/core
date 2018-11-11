@@ -30,7 +30,9 @@
     handle_info/2,
 	terminate/2,
 	simpleCall/1,
-	mapTest/1
+	mapTest/1,
+	task1/0,
+	createIndexList/2
     % code_change/3
 ]).
 
@@ -81,8 +83,8 @@ init(_Args) ->
 % SYNCRONOUS call to verify the state of the node.
 %
 % Return type: A tuple returning the atom 'ok', the Status of the node ("busy" or "idle") and the database name, if the node is busy, or 'none' if the node is 'idle'.
-handle_call({mr_ping}, _, State = #nodeInfo{status = Status, database = Database}) ->
-	{reply, {ok, Status, Database}, State};
+handle_call({mr_ping}, _, State = #nodeInfo{status = Status, database = Database, lastResult = LastResult}) ->
+	{reply, {ok, Status, Database, LastResult}, State};
 
 
 
@@ -102,24 +104,32 @@ handle_call({mr_ping}, _, State = #nodeInfo{status = Status, database = Database
 % The state of the node is changed to 'busy', in order to not execute other tasks. This state is back do 'idle' when all nodes send the task result back to the manager node.
 
 handle_call({mr_task, Database, Modules = #taskModules{main = MainModule, dependencies = Dependencies}}, _, State = #nodeInfo{status = Status}) ->
+	log("Major task received."),
     case Status of
         idle ->
+			log("Idle manager."),
         	Nodes = get_node_list(),
         	case Nodes of
         		[] ->
+					log("No nodes avaiable."),
         			{reply, {error, "No nodes avaiable."}, State};
         		_ ->
+					log("Nodes avaiable."),
 					reset_table(),
 					load_module(Dependencies),
 					load_module(MainModule),
-        			Task = distribute_tasks(Database, Modules, Nodes),
+					log("Entry modules loaded."),
+					Task = distribute_tasks(Database, Modules, Nodes),
+					log("Tasks distributed."),
         			Modules = Task#managementTask.modules, 
 		            NewState = #nodeInfo{status = busy, database = Database, managementTask = Task, workerTask = none, lastResult = none},
 		            {reply, {ok, "Task stated."}, NewState}
         	end;            
         busy ->
+			log("Node manager busy."),
             {reply, {error, "Server busy, task not stated."}, State};
         _ ->
+			log("Node manager unexpected state."),
         	NewState = #nodeInfo{status = idle, database = none, managementTask = none, workerTask = none, lastResult = State#nodeInfo.lastResult},
             {reply, {error, "Unexpected server state. Returning to Idle State."}, NewState}
 	end.
@@ -128,46 +138,69 @@ handle_call({mr_task, Database, Modules = #taskModules{main = MainModule, depend
 
 
 handle_cast({mr_task, #taskInformation{manager = Manager, documentIndexList = DocIndexList, database = Database, modules = Modules = #taskModules{main = MainModule, dependencies = Dependencies}}}, State = #nodeInfo{status = Status, lastResult = LastResult}) ->
+	log("Worker task."),
 	case Status of
         idle ->
+			log("Worker idle."),
 			load_module(Dependencies),
 			load_module(MainModule),
+			log("Entry modules loaded on worker."),
         	WorkerTask = #workerTask{manager = Manager, documentIndexList = DocIndexList, modules = Modules, taskStartDate = none},
 			NewState = #nodeInfo{status = busy, database = Database, managementTask = none, workerTask = WorkerTask, lastResult = LastResult},
+			log("Worker new state created."),
 			%gen_server:cast(?MODULE, {mr_worker}),
 			{noreply, NewState, 5};
         _ ->
+			log("Worker not idle."),
         	{noreply, State, 5}
 	end;
 handle_cast({mr_worker}, #nodeInfo{database = Database, workerTask = #workerTask{manager = Manager, documentIndexList = DocIndexList, modules = #taskModules{main = MainModule = {ModuleName, _, _}, dependencies = Dependencies}}}) ->
 		try
+			log("Worker start task."),
 			NameIndex = Database++"Index.adb",
 			{ok, Fp} = file:open(NameIndex, [read, binary]),
 			{Settings, _} = get_header(Fp),
-			DocList = doc_list(Database),
-			MapResults = adb_map(Database, DocIndexList, ModuleName, DocList, Settings),
+			{ok, DocList} = doc_list(Database),
+			log("Worker doc list retrieved."),
+			log("Worker -- IndexList"),
+			log(DocIndexList),
+			MapResults = adb_map(DocIndexList, ModuleName, DocList, Settings),
+			log("Map executed."),
+			log(MapResults),
 			ReduceResults = adb_reduce(MapResults, ModuleName),
+			log("Reduce executed."),
 			Result = #taskResult{node = node(), result = ReduceResults, taskCompletionDate = calendar:universal_time()},
 			gen_server:cast({adb_mr, Manager}, {task_done, Result}),
+			log("Worker result sent."),
 			remove_module(MainModule),
 			remove_module(Dependencies),
+			log("Worker entry modules unloaded."),
 			NewState = #nodeInfo{status = idle, database = none, managementTask = none, workerTask = none, lastResult = Result},
 			file:close(Fp),
-			{ok, NewState}
+			log("Worker exit."),
+			{noreply, NewState}
 		catch
 			error:Error ->
+				log("Worker error."),
 				{error, Error}
 		end;	
 
-handle_cast({task_done, Result = #taskResult{node = Node}}, NodeInfo = #nodeInfo{managementTask = #managementTask{modules = #taskModules{main = {ModuleName, _, _}}}}) ->
+handle_cast({task_done, Result = #taskResult{node = Node}}, NodeInfo = #nodeInfo{managementTask = #managementTask{modules = #taskModules{main = {ModuleName, _, _}}, tasksDistributed = DistributedTasks}}) ->
+	log("Manager result received."),
 	ets:insert(?ManagerTable, {Node, Result}),
-	Results = ets:tab2list(?ManagerTable),
-	NumOfTasks = length(NodeInfo#managementTask.tasksDistributed),
+	Results = get_table_results(ets:tab2list(?ManagerTable)),
+	log("Manager - Result inserted on table."),
+	log("Manager - Tasks Distributed."),
+	log(DistributedTasks),
+	NumOfTasks = length(DistributedTasks),
 	case length(Results) of
 		NumOfTasks ->
+			log("Manager - All nodes sent result."),
 			FinalResult = mergeResults(fun ModuleName:reduce/1, Results),
+			log("Manager - Results merged."),
 			NewState = #nodeInfo{status = idle, database = none, managementTask = none, workerTask = none, lastResult = FinalResult};
 		_ ->
+			log("Manager - Nodes need to send results."),
 			NewState = NodeInfo
 	end,
 	{noreply, NewState};
@@ -177,14 +210,18 @@ handle_cast(_, State) ->
     {noreply, State}.
 
 handle_info(timeout, State = #nodeInfo{workerTask = WorkerTask = #workerTask{taskStartDate = TaskStartDate}}) ->
+	log("Timeout."),
 	case TaskStartDate of
 		none ->
+			log("Worker did not star task."),
 			NewWorkerTask = WorkerTask#workerTask{taskStartDate = calendar:universal_time()},
 			NewState = State#nodeInfo{workerTask = NewWorkerTask},
+			log("Worker state updated."),
 			gen_server:cast(?MODULE, {mr_worker}),
+			log("Worker started task."),
 			{noreply, NewState};
 		_ ->
-			{noreply, State}			
+			{noreply, State}
 	end;
 handle_info(_, State) ->
     {noreply, State}.
@@ -222,10 +259,18 @@ get_document_count(Database) ->
 	Count.
 
 get_document(Index, DocList, Settings) ->
-	DocPos = lists:nth(Index, DocList),
-	{ok, Doc, {ver, _}} = read_doc(DocPos, Settings),
+	log("Worker -- Index"),
+	log(Index),
+	log("Worker -- DocList"),
+	log(DocList),
+	{_, DocPos} = lists:nth(Index, DocList),
+	log("Worker -- DocPos"),
+	log(DocPos),
+	{ok, _, Doc} = read_doc(DocPos, Settings),
+	log("Worker -- Doc."),
+	log(Doc),
 	% Parsing the document to proplist.
-	decode(Doc, [{object_format, proplist}]).
+	parse_doc(Doc).
 
 parse_doc(Doc) ->
 	decode(Doc, [{object_format, proplist}]).
@@ -249,7 +294,7 @@ check_nodes([]) ->
 	[];
 check_nodes([Target | Tail]) ->
 	try gen_server:call({adb_mr, Target}, {mr_ping}) of
-		{ok, idle, _} ->
+		{ok, idle, _, _} ->
 			[ Target | check_nodes(Tail)];
 		_ ->
 			check_nodes(Tail)
@@ -261,31 +306,40 @@ check_nodes([Target | Tail]) ->
 
 
 distribute_tasks(Database, Modules, Nodes) ->
-    DocCount = get_document_count(Database),
-    {RegularAmount, RemainingAmount} = split_work(length(Nodes), DocCount),
-    DistributedTasks = create_tasks(Nodes, 1, RegularAmount, RemainingAmount),
-    send_tasks(DistributedTasks, Database, Modules),
+	log("Manager -- distribute tasks.."),
+	DocCount = get_document_count(Database),
+	log("Manager -- Docs counted."),
+	{RegularAmount, RemainingAmount} = split_work(length(Nodes), DocCount),
+	log("Manager -- Work splited."),
+	DistributedTasks = lists:flatten(create_tasks(Nodes, 1, RegularAmount, RemainingAmount)),
+	log("Manager -- Tasks created."),
+	log(length(DistributedTasks)),
+	send_tasks(DistributedTasks, Database, Modules),
+	log("Manager -- Tasks sent."),
     #managementTask{tasksDistributed = DistributedTasks, documentCount = DocCount, modules = Modules, resultList = [], result = none}.
 
 create_tasks([Last | []], Index, _, Remaining) ->
-    IndexList = createIndexList(Index, Index+Remaining),
+    IndexList = createIndexList(Index, Index+Remaining-1),
     NodeTask = #nodeControl{node = Last, documentIndexList = IndexList, taskStartDate = calendar:universal_time()},
-    NodeTask;
+    [NodeTask];
 create_tasks([Head | Tail], Index, Regular, Remaining) ->
-    IndexList = createIndexList(Index, Index+Regular),
+    IndexList = lists:flatten(createIndexList(Index, Index+Regular-1)),
     NodeTask = #nodeControl{node = Head, documentIndexList = IndexList, taskStartDate = calendar:universal_time()},
     [NodeTask | create_tasks(Tail, Index+Regular, Regular, Remaining)].
 
 createIndexList(Start, Start) ->
-    Start;
+    [Start | []];
 createIndexList(Start, End) ->
     [Start | createIndexList(Start+1, End)].
 
 send_tasks([], _, _) ->
     ok;
 send_tasks([Target | Tail], Database, Modules) ->
+	log("Manager -- Send tasks before crash."),
 	Task = #taskInformation{manager = node(), documentIndexList = Target#nodeControl.documentIndexList, database = Database, modules = Modules},
-	gen_server:cast({adb_mr, Target#nodeControl.node}, {mr_task, Task}),
+	log("Manager -- Task created."),
+	gen_server:cast({?MODULE, Target#nodeControl.node}, {mr_task, Task}),
+	log("Manager -- Task sent."),
     send_tasks(Tail, Database, Modules).
 
 split_work(NodeAmount, TotalDocs) ->
@@ -320,11 +374,23 @@ remove_module([ {Module, _, _} | Tail]) ->
 	remove_module(Tail),
 	ok.
 
+get_table_results([]) ->
+	[];
+get_table_results([Head | Tail]) ->
+	{_, #taskResult{result = Result}} = Head,
+	[Result | get_table_results(Tail)].
+
 mergeResults(Merge, Results) ->
+	log("Manager -- Starting merge."),
+	log(Merge),
+	log("Manager -- Results."),
+	log(Results),
 	case Merge of
 		none ->
+			log("Merge -- none"),
 			Results;
 		_ ->
+			log("Merge -- merge found."),
 			Merge(Results)
 	end.
 
@@ -333,28 +399,39 @@ reset_table() ->
 	ets:delete(?ManagerTable),
 	ets:new(?ManagerTable, [named_table]).
 
-adb_map(_, [], _, _, _) ->
+adb_map([], _, _, _) ->
 	[];
-adb_map(Database, [Index | Tail], Module, DocList, Settings) ->
+adb_map([Index | Tail], Module, DocList, Settings) ->
+	log("Worker -- Starting Map"),
 	Doc = get_document(Index, DocList, Settings),
+	log("Worker -- Doc got."),
+	log(Module),
 	try Module:map(Doc) of
 		MapResult ->
-			[MapResult | adb_map(Database, Tail, Module, DocList, Settings)]
+			log("Map works"),
+			[MapResult | adb_map(Tail, Module, DocList, Settings)]
 	catch
 		Error ->
+			log("Map error."),
 			throw({adb_map_error, Error, Index})
 	end.
 	
 adb_reduce([], _) ->
 	[];
-adb_reduce([Head | Tail], Module) ->
-	try Module:reduce(Head) of
+adb_reduce(Entry, Module) ->
+	log("Starting Reduce"),
+	try Module:reduce(Entry) of
 		ReduceResult ->
-			[ReduceResult | adb_reduce(Tail, Module)]
+			log("Reduce works."),
+			ReduceResult
 	catch
 		Error ->
-			throw({adb_reduce_error, Error, Head})
+			log("Reduce error."),
+			throw({adb_reduce_error, Error, Entry})
 	end.
+
+log(Message) ->
+	io:format("~p~n", [Message]).
 
 simpleCall(Pid) ->
 	Module = adb_mr_tests,
@@ -367,9 +444,9 @@ mapTest(Json) ->
 	Doc = decode(Json, [{object_format, proplist}]),
 	adb_mr_tests:map(Doc).
 
-create_task() ->
+task1() ->
 	Module = adb_mr_tests,
 	{_Module, Binary, Filename} = code:get_object_code(Module),
 	MrModules = #taskModules{main = {Module, Filename, Binary}, dependencies = []},
-	gen_server:call(?MODULE, {mr_task, "Test", MrModules}),
-	ok.
+	Res = gen_server:call(?MODULE, {mr_task, "Test", MrModules}),
+	{ok, Res}.
