@@ -4,8 +4,8 @@
  {modules, []},
  {registered, [adb_sup]},
  {applications, [kernel, stdlib, lager]},
- {env, [{'ADB_PORT', 1234},                  %% Default port on which the server will listen at this node.
-        {'ADB_HOST', '127.0.0.1'}]},         %% Default hostname on which this node will be identified on dist mode.
+ {env, [{'ADB_PORT', 1234},              %% Default port on which the server will listen at this node.
+        {'ADB_HOST', '127.0.0.1'}]},     %% Default hostname on which this node will be identified on dist mode.
  {mod, {adb_app, 
         [{persistence, adbtree},         %% {persistence, ets | hanoidb | adbtree}
          {distribution, dist},           %% {distribution, dist | mono}

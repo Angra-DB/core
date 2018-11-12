@@ -13,19 +13,21 @@ create_db(Database) ->
     Targets = [node()|nodes()],
     Request = {process_request, {all, {create_db, Database, Database}}},
     ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
-    case gen_partition:validate_response(ResponseStats, Targets, write) of
+    case gen_partition:validate_response(ResponseStats, length(Targets), write) of
         {success, _Res}                        -> {ok, Database};
         {failed, {badmatch, {error, eexist}}}  -> {error, already_exists};
-        {failed, Response}                     -> {error, Response}
+        {failed, Response}                     -> {error, Response};
+        {error, Reason}                        -> {error, Reason}
     end.
 
 connect(Database) ->
     Targets = [node()|nodes()],
     Request = {process_request, {all, {connect, Database, Database}}},
     ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
-    case gen_partition:validate_response(ResponseStats, Targets, read) of
+    case gen_partition:validate_response(ResponseStats, length(Targets), read) of
         {success, Response} -> {ok, Response};
-        {failed, Response}  -> {error, Response}
+        {failed, Response}  -> {error, Response};
+        {error, Reason}     -> {error, Reason}
     end.
 
 save(Database, {Key, HashFunc}, Doc) ->

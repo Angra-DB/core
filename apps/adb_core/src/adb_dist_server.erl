@@ -1,5 +1,5 @@
 %%-----------------------------------------------------------------------------
-%% @author Ismael Coelho Medeiros <140083162@aluno.unb.br>
+%% @author Ismael Medeiros <ismael.medeiros96@gmail.com>
 %%
 %% @doc 
 %% 
