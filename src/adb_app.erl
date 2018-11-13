@@ -11,8 +11,6 @@
 
 -export([start/2, stop/1, kickoff/1, kickoff/2]).
 
--define(DEFAULT_PORT, 1234). 
-
 % this operation is called when the 
 % OTP system wants to start our application. 
 % actually, this is the most relevant 
@@ -41,18 +39,11 @@ kickoff(all, LogLevel)->
 
   application:start(adb_core).
 
-start(_Type, _StartArgs) ->
+start(_Type, StartArgs) ->
 
     lager:info("Starting the AngraDB server. ~n"),
-    Port = case application:get_env(tcp_interface, port) of
-             {ok, P}   -> P;
-             undefined -> ?DEFAULT_PORT
-           end,
-    {ok, LSock} = gen_tcp:listen(Port, [{active,true}, {reuseaddr, true}]),
 
-    lager:info("Listening to TCP requests on port ~w ~n", [Port]),
-
-    case adb_sup:start_link(LSock, _StartArgs) of
+    case adb_sup:start_link(StartArgs) of
       {ok, Pid} ->
         server_sup:start_child(),
         {ok, Pid};

@@ -12,17 +12,28 @@
 -behavior(supervisor). 
 
 %% API
--export([start_link/1, start_link/2, start_child/0]).
+-export([start_link/0, start_link/1, start_child/0]).
 
 %% Supervisor callbacks
 -export([init/1]).
 
 -define(SERVER, ?MODULE).
 
-start_link(LSock) ->
-    start_link(LSock, []).
+-define(DEFAULT_PORT, 1234).
 
-start_link(LSock, Args) ->
+start_link() ->
+    start_link([]).
+
+start_link(Args) ->
+
+    Port = case application:get_env(tcp_interface, port) of
+             {ok, P}   -> P;
+             undefined -> ?DEFAULT_PORT
+           end,
+    {ok, LSock} = gen_tcp:listen(Port, [{active,true}, {reuseaddr, true}]),
+
+    lager:info("Listening to TCP requests on port ~w ~n", [Port]),
+
     Persistence = setup_persistence(Args),
     Authentication = setup_authentication(Args),
     Authorization = setup_authorization(Args),
