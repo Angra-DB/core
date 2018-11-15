@@ -10,7 +10,8 @@
         [
           {persistence, {{name, adbtree}, [{max_index_size, 50000000}]}},
           {authentication, {{name, adb_authentication}, []}},
-          {authorization, {{name, simple_authorization}, []}}
+          {authorization, {{name, simple_authorization}, []}},
+          {ssl, [{certfile, "./test_certificate/testcert.pem"}, {keyfile, "./test_certificate/key.pem"}]}
         ]
        }
  }
