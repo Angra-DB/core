@@ -3,6 +3,8 @@
 %-export([start/1, save/3,lookup/2,update/3,delete/2, create_db/4, create_db/3, create_db/2, create_db/1]).
 -compile(export_all).
 
+-import(adb_doc_list, [get_list/1]).
+
 % start(DBName) ->
 % 	case Fp = file:open(DBName++"Index.adb", [read]) of
 % 		T = {error, enoent} ->
@@ -168,6 +170,52 @@ compress_index([PNode | NodePointers], FpOld, Btree, FpNew, Settings) ->
 	{ok, [NewPos | NewPointers]}.
 
 
+
+
+doc_count(DBName) ->
+	LeafList = get_list(DBName),
+	NameIndex = DBName++"Index.adb",
+	{ok, Fp} = file:open(NameIndex, [read, binary]),
+	{Settings, Btree} = get_header(Fp),
+	DocCount = doc_count(LeafList, Fp, Settings, Btree),
+	file:close(Fp),
+	{ok, DocCount}.
+
+doc_count([], _Fp, _Settings, _Btree) ->
+	0;
+doc_count([Leaf | Tail], Fp, Settings, Btree) ->
+	file:position(Fp, {bof, Leaf}),
+	{ok, Type} = file:read(Fp, 1),
+	case Type of
+		<<?Leaf:1/unit:8>> ->
+			#leaf{docPointers = DocPointers} = read_leaf(Fp, Settings, Btree),
+			length(DocPointers) + doc_count(Tail, Fp, Settings, Btree);
+		_V ->
+			error(invalid_doc_leaf)
+	end.
+
+doc_list(DBName) ->
+	LeafList = get_list(DBName),
+	NameIndex = DBName++"Index.adb",
+	{ok, Fp} = file:open(NameIndex, [read, binary]),
+	{Settings, Btree} = get_header(Fp),
+	DocList = lists:flatten(doc_list(LeafList, Fp, Settings, Btree)),
+	file:close(Fp),
+	{ok, DocList}.
+
+doc_list([], _Fp, _Settings, _Btree) ->
+	[];
+doc_list([Leaf | Tail], Fp, Settings, Btree) ->
+	file:position(Fp, {bof, Leaf}),
+	{ok, Type} = file:read(Fp, 1),
+	case Type of
+		<<?Leaf:1/unit:8>> ->
+			#leaf{keys = Keys, docPointers = DocPointers} = read_leaf(Fp, Settings, Btree),
+			ZippedDocs = lists:zip(Keys, DocPointers),
+			[ZippedDocs | doc_list(Tail, Fp, Settings, Btree)];
+		_V ->
+			error(invalid_doc_leaf)
+	end.
 
 %	Função que lê um documento do arquivo de documentos. Recebe como parâmetro: *parâmetros* . Retorna: *retorno*.
 %	A function that reads a document from the document's file. Receives as attribute: *attribute*. Returns: *return value*.
