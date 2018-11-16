@@ -15,16 +15,17 @@ process_request(create_db, _, DB, Child, Settings) ->
 process_request(connect, _, DB, Child, Settings) ->
     Child:connect(DB, Settings);
 
-process_request(save, DB, Doc, Child, _) ->
+process_request(save, DB, {_, Doc}, Child, _) ->
+    lager:info("saving doc ~s", [Doc]),
     Child:save(DB, gen_key(), Doc);
 
-process_request(save_key, DB, {Key, Doc}, Child, _) ->
+process_request(save_key, DB, {Key, _, Doc}, Child, _) ->
     Child:save(DB, Key, Doc);    
 
 process_request(lookup, DB, Key, Child, _) ->
     Child:lookup(DB, Key);
 
-process_request(update, DB, {Key, Doc}, Child, _) ->
+process_request(update, DB, {Key, _, Doc}, Child, _) ->
     Child:update(DB, Key, Doc);
 
 process_request(delete, DB, Key, Child, _) ->

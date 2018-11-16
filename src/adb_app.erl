@@ -33,7 +33,7 @@ start(_Type, _StartArgs) ->
              {ok, P}   -> P;
              undefined -> ?DEFAULT_PORT
            end,
-    {ok, LSock} = gen_tcp:listen(Port, [{active,true}, {reuseaddr, true}]),
+    {ok, LSock} = gen_tcp:listen(Port, [{active,true}, {reuseaddr, true}, {packet_size, 12348564}]),
 
     lager:info("Listening to TCP requests on port ~w ~n", [Port]),
 

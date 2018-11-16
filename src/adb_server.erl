@@ -35,7 +35,7 @@
 
 -define(SERVER, ?MODULE).      % declares a SERVER macro constant (?MODULE is the module's name)
 
--record(state, {lsock, persistence, parent, current_db = none}). % a record for keeping the server state
+-record(state, {lsock, persistence, parent, current_db = none, waiting_request = false, body = {} }). % a record for keeping the server state
 
 %%%======================================================
 %%% API
@@ -68,9 +68,25 @@ handle_call(Msg, _From, State) ->
 handle_cast(stop, State) ->
     {stop, normal, State}.
 
+handle_info({tcp, Socket, RawData}, State = #state{ waiting_request = true, body = Request}) ->
+    {NewRequest, Concatenated, Size} = update_request_data(Request, clean_request(RawData)),
+    case list_to_integer(Size) > length(Concatenated) of
+        true -> 
+            {noreply, State#state{waiting_request = true, body = NewRequest}};
+        _ ->
+            NewState = process_request(Socket, State, NewRequest),
+            {noreply, NewState#state{ waiting_request = false }}
+    end;
+
 handle_info({tcp, Socket, RawData}, State) ->
-    NewState = process_request(Socket, State, RawData),
-    {noreply, NewState};
+    case preprocess(RawData) of
+        {wait, Request} ->
+            {noreply, State#state{waiting_request = true, body = Request}};
+        Tokens ->
+            NewState = process_request(Socket, State, Tokens),
+            {noreply, NewState#state{ waiting_request = false }}
+    end;
+    
 
 handle_info({tcp_closed, _Socket}, State) ->
     {stop, normal, State};
@@ -100,15 +116,15 @@ code_change(_OldVsn, State, _Extra) ->
 %   update <Id> <Document>
 %   delete <Id>
 %%% =========================================================
-process_request(Socket, State, RawData) ->
-    try
-      Tokens = preprocess(RawData),
-      evaluate_request(Socket, State, Tokens)
-    catch
-      _Class:Err ->
-          gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Err])),
-          State
-    end.
+process_request(Socket, State, Tokens) ->
+    evaluate_request(Socket, State, Tokens).
+    % try
+      
+    % catch
+    %   _Class:Err ->
+    %       gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Err])),
+    %       State
+    % end.
 
 evaluate_request(Socket, State, Tokens) ->
     case Tokens of
@@ -130,37 +146,45 @@ connect(Socket, State, Database) ->
     Res = gen_persistence:process_request(connect, Database, Database, Persistence, Settings),
     case Res of
         db_does_not_exist ->
-            gen_tcp:send(Socket, io_lib:fwrite("Database ~p does not exist~n", [Database])),
+            F = lists:flatten(io_lib:fwrite("Database ~p does not exist~n", [Database])),
+            gen_tcp:send(Socket, io_lib:fwrite("~p ~s", [length(F), F])),
 	        State;
 	    ok ->
             NewState = State#state{ current_db = list_to_atom(Database) },
-            gen_tcp:send(Socket, io_lib:fwrite("Database set to ~p...~n", [Database])),
+            F = lists:flatten(io_lib:fwrite("Database set to ~p...~n", [Database])),
+            gen_tcp:send(Socket, io_lib:fwrite("~p ~s", [length(F), F])),
             NewState
     end.
 
 persist(Socket, _, none, _) ->
-    gen_tcp:send(Socket, io_lib:fwrite("Database not set. Please use the 'use' command.~n", []));
+    F = lists:flatten(io_lib:fwrite("Database not set. Please use the 'use' command.~n", [])),
+    gen_tcp:send(Socket, io_lib:fwrite("~p ~s", [length(F), F]));
 
 persist(Socket, {Persistence, Settings}, CurrentDB, {Command, Args}) ->
-    io:format("Command ~p ~nArgs ~p~n", [Command, Args]),
     Res = gen_persistence:process_request(list_to_atom(Command), CurrentDB, Args, Persistence, Settings),
     case Res of
         _Response ->
-            gen_tcp:send(Socket, io_lib:fwrite("~p~n", [_Response]))
+            F = lists:flatten(io_lib:fwrite("~p~n", [_Response])),
+            gen_tcp:send(Socket, io_lib:fwrite("~p ~s", [length(F), F]))
     end.
 
-preprocess(RawData) ->
+clean_request(RawData) ->
     _reverse = lists:reverse(RawData),
     Pred = fun(C) -> (C == $\n) or (C == $\r) end,
-    _trim = lists:reverse(lists:dropwhile(Pred, _reverse)),
-    {Command, Args} = split(_trim),
+    _trim = lists:reverse(lists:dropwhile(Pred, _reverse)).
+
+preprocess(RawData) ->
+    Cleaned = clean_request(RawData),
+    lager:info(RawData),
+    {Command, Args} = split(Cleaned),
     case filter_command(Command) of
         [] -> 
             throw(invalid_command);
-        ["update"] -> 
-            {Command, split(Args)};
-	    ["save_key"] -> 
-            {Command, split(Args)};
+	    [C] when C =:= "save_key"; C =:= "update" -> 
+            {Key, DocInfo} = split(Args),
+            get_doc_arguments(DocInfo, fun({Size, Doc}) -> {Command, {Key, Size, Doc}} end);
+        ["save"] ->
+            get_doc_arguments(Args, fun({Size, Doc}) -> {Command, {Size, Doc}} end);
         _ -> 
             {Command, Args}
     end.
@@ -174,3 +198,20 @@ split(Str) ->
     Pred = fun(A) -> A =/= $  end,
     {Command, Args} = lists:splitwith(Pred, Stripped),
     {Command, string:strip(Args)}.
+
+get_doc_arguments(Args, Map) ->
+    Split = {Size, Doc} = split(Args),
+    case list_to_integer(Size) > length(Doc) of
+        true ->
+            {wait, Map(Split)};
+        false ->
+            Map(Split)
+    end.
+
+update_request_data({Command, {Key, Size, Data}}, NewData) ->
+    Concatenated = Data++NewData,
+    {{Command, {Key, Size, Concatenated}}, Concatenated, Size };
+
+update_request_data({Command, {Size, Data}}, NewData) ->
+    Concatenated = Data++NewData,
+    {{Command, {Size, Concatenated}}, Concatenated, Size}.
