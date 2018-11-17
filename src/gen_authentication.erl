@@ -2,10 +2,10 @@
 
 -export([behaviour_info/1]).
 
--export([start/2, process_request/5]).
+-export([start/2, login/4, logout/2, register/4]).
 
 behaviour_info(callbacks) ->
-  [{init, 2}, {login, 3}, {logout, 1}, {register, 3}].
+  [{init, 2}, {handle_login, 3}, {handle_logout, 1}, {handle_register, 3}].
 
 
 %%%%%%%%% IMPORTANT
@@ -25,14 +25,14 @@ start({Authentication_scheme, Authentication_settings}, Persistence_setup) ->
 % - {?LoggedIn, #authentication_info}, in case the login is successful
 % - {?LoggedOut, ?ErrorInvalidPasswordOrUsername}, in case the login failed because of invalid password/username
 % - {?LoggedOut, none [or ErrorMessage]}, if any other failure/error happens while processing login
-process_request(login, Authentication_scheme, LoginArgs, _, Persistence_scheme) ->
-    Authentication_scheme:login(LoginArgs, Persistence_scheme);
+login(LoginArgs, Authentication_scheme, Persistence_scheme, Socket) ->
+    Authentication_scheme:handle_login(LoginArgs, Persistence_scheme, Socket).
 
 % Description: ordinary logout function
 % Expected returns:
 % - {?LoggedOut, none}
-process_request(logout, Authentication_scheme, _LogoutArgs, Authentication_status, _) ->
-    Authentication_scheme:logout(Authentication_status);
+logout(Authentication_scheme, Authentication_status) ->
+    Authentication_scheme:handle_logout(Authentication_status).
 
 % Description: ordinary register function
 % RegisterArgs: a tuple with two elements that were passed after the 'register' command. One authentication module might use
@@ -40,8 +40,8 @@ process_request(logout, Authentication_scheme, _LogoutArgs, Authentication_statu
 % Expected returns:
 % - {ok, _}, in case the registering is successful (example: {ok, DocKey}
 % - {error, _}, otherwise (example: {error, ?ErrorUserAlreadyExists}, in case the username used already exists)
-process_request(register, Authentication_scheme, RegisterArgs, _, Persistence_scheme) ->
-  Authentication_scheme:register(RegisterArgs, Persistence_scheme).
+register(RegisterArgs, Authentication_scheme, Persistence_scheme, Socket) ->
+  Authentication_scheme:handle_register(RegisterArgs, Persistence_scheme, Socket).
 
 
 

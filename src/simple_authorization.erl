@@ -8,10 +8,10 @@
 % gen_authorization callbacks
 -export([
 	init/2,
-	request_permission/4,
-	grant_permission/3,
-	revoke_permission/3,
-	show_permission/3
+	handle_request_permission/4,
+	handle_grant_permission/3,
+	handle_revoke_permission/3,
+	handle_show_permission/3
 ]).
 
 
@@ -52,7 +52,7 @@ init(_Authentication_settings, {Persistence_scheme, Persistence_settings}) ->
 % since, in this definition, the Database was not set yet (Database = none), we only need to verify if the requested action need any access other than NoPermission.
 % If positive, than this function will return {?Forbidden, databaseNotSet}. Otherwise, the access will be granted, since the action does not
 % need any special permission, and the function will return {?Granted, databaseNotSet}.
-request_permission(_Persistence_scheme, none, _Username, Request = {Command, _Args}) ->
+handle_request_permission(_Persistence_scheme, none, _Username, Request = {Command, _Args}) ->
 	Needed_permission = retrieve_permission_from_proplist(Command, ?CommandsAndPermissions),
 	case Needed_permission of
 		?NoPermission ->
@@ -64,15 +64,15 @@ request_permission(_Persistence_scheme, none, _Username, Request = {Command, _Ar
 	end;
 
 % this definition ensures that Database will be used in list format
-request_permission(Persistence_scheme, Database, Username, {Command, _Args}) when is_atom(Database) ->
-	request_permission(Persistence_scheme, atom_to_list(Database), Username, {Command, _Args});
+handle_request_permission(Persistence_scheme, Database, Username, {Command, _Args}) when is_atom(Database) ->
+	handle_request_permission(Persistence_scheme, atom_to_list(Database), Username, {Command, _Args});
 
 % verifies the database, the Command and the Args, and then returns {?Granted, User_permission_string} if the user indeed has the required permission,
 % or {?Forbidden, User_permission_string} otherwise. If any error occurs, it returns {?Forbidden, Error}.
 % it's important to mention that, if the current user is the first to request permission to one DB (in other words, the permissions document of
 % this DB doesn't exist yet), he/she gets owner access to it. This will not happen to critical databases, such as AuthenticationDatabase or
 % AuthorizationDatabase, since they are already created when this module is initialized.
-request_permission(Persistence_scheme, Database, Username, Request = {Command, _Args}) ->
+handle_request_permission(Persistence_scheme, Database, Username, Request = {Command, _Args}) ->
 	Database_hash = auth_utils:get_hash_as_hex(Database),
 	case gen_persistence:process_request(lookup, list_to_atom(?AuthorizationDBName), Database_hash, Persistence_scheme, none) of
 		{ok, Permissions_doc} ->
@@ -101,13 +101,13 @@ request_permission(Persistence_scheme, Database, Username, Request = {Command, _
 
 
 % this definition ensures that Database will be used in list format
-grant_permission(Persistence_scheme, Database, {Target_username, Permission_in_API_format}) when is_atom(Database) ->
-	grant_permission(Persistence_scheme, atom_to_list(Database), {Target_username, Permission_in_API_format});
+handle_grant_permission(Persistence_scheme, Database, {Target_username, Permission_in_API_format}) when is_atom(Database) ->
+	handle_grant_permission(Persistence_scheme, atom_to_list(Database), {Target_username, Permission_in_API_format});
 
 % this function grants the permission <Permission_in_API_format> upon database <Database> to the user <Target_username>.
 % if the user already had certain permission upon that DB, that permission is updated to the new given permission
 % if the permission is granted successfully, the function returns {ok, Permission_as_string}, and {error, Error}, otherwise.
-grant_permission(Persistence_scheme, Database, {Target_username, Permission_in_API_format}) ->
+handle_grant_permission(Persistence_scheme, Database, {Target_username, Permission_in_API_format}) ->
 	Database_hash = auth_utils:get_hash_as_hex(Database),
 	Desired_permission = permission_API_format_to_integer(Permission_in_API_format),
 	case gen_persistence:process_request(lookup, list_to_atom(?AuthorizationDBName), Database_hash, Persistence_scheme, none) of
@@ -135,13 +135,13 @@ grant_permission(Persistence_scheme, Database, {Target_username, Permission_in_A
 
 
 % this definition ensures that <Database> will be used in list format
-revoke_permission(Persistence_scheme, Database, Username) when is_atom(Database)->
-	revoke_permission(Persistence_scheme, atom_to_list(Database), Username);
+handle_revoke_permission(Persistence_scheme, Database, Username) when is_atom(Database)->
+	handle_revoke_permission(Persistence_scheme, atom_to_list(Database), Username);
 
 % revokes the permission that the user <Username> has upon the database <Database>
 % if the revocation is successful, this function returns {ok, RevokedPermission},
 % and, if some error occurs, it returns {error, Error}
-revoke_permission(Persistence_scheme, Database, Username) ->
+handle_revoke_permission(Persistence_scheme, Database, Username) ->
 	Database_hash = auth_utils:get_hash_as_hex(Database),
 	case gen_persistence:process_request(lookup, list_to_atom(?AuthorizationDBName), Database_hash, Persistence_scheme, none) of
 		{ok, Permissions_doc} ->
@@ -159,13 +159,13 @@ revoke_permission(Persistence_scheme, Database, Username) ->
 
 
 % this definition ensures that <Database> will be used in list format
-show_permission(Persistence_scheme, Database, Username) when is_atom(Database)->
-	show_permission(Persistence_scheme, atom_to_list(Database), Username);
+handle_show_permission(Persistence_scheme, Database, Username) when is_atom(Database)->
+	handle_show_permission(Persistence_scheme, atom_to_list(Database), Username);
 
 % simply shows which permission the user <Username> has upon the database <Database>
 % if the fetching is successful, this function returns {ok, Permission_as_string},
 % and, if some error occurs, it returns {error, Error}
-show_permission(Persistence_scheme, Database, Username) ->
+handle_show_permission(Persistence_scheme, Database, Username) ->
 	Database_hash = auth_utils:get_hash_as_hex(Database),
 	case gen_persistence:process_request(lookup, list_to_atom(?AuthorizationDBName), Database_hash, Persistence_scheme, none) of
 		{ok, Permissions_doc} ->

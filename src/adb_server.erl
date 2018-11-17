@@ -10,6 +10,7 @@
 
 -module(adb_server).
 -include_lib("eunit/include/eunit.hrl").
+-include("adb_server.hrl").
 -include("gen_authentication.hrl").
 -include("gen_authorization.hrl").
 
@@ -32,14 +33,6 @@
 , code_change/3]).
 
 -export([split/1]).
-
--define(SERVER, ?MODULE).      % declares a SERVER macro constant (?MODULE is the module's name)
-
-% persistence_setup (the persistence scheme and its configurations), authentication_setup (the authentication scheme and its configurations),
-% authentication_status (the authentication current status of this specific connection), authorization_setup (the authorization scheme and its configurations),
-% communication (if ssl options were set on "adb_core.app", the app will use SSL; thus, this field will store the atom ssl, which will the erlang module used;
-% if no ssl options are set, the app will use purely TCP, and this field will contain only gen_tcp, which is the erlang TCP module that will be used)
--record(state, {lsock, persistence_setup, parent, current_db = none, authentication_setup, authentication_status = {?LoggedOut, none}, authorization_setup, communication}). % a record for keeping the server state
 
 %%%======================================================
 %%% API
@@ -64,7 +57,18 @@ stop() ->
 %%%===========================================
 
 init([LSock, Persistence, Authentication, Authorization, Communication]) ->
-    {ok, #state{lsock = LSock, persistence_setup = Persistence, authentication_setup = Authentication, authorization_setup = Authorization, communication = Communication}, 0}.
+    {
+        ok,
+        #state{
+            lsock = LSock,
+            persistence_setup = Persistence,
+            authentication_setup = Authentication,
+            authentication_status = {?LoggedOut, none},
+            authorization_setup = Authorization,
+            communication = Communication
+        },
+        0
+    }.
 
 handle_call(Msg, _From, State) ->
     {reply, {ok, Msg}, State}.
@@ -252,17 +256,12 @@ login(Socket, #state{communication = Communication_module} = State, LoginArgs) -
     {Authentication_scheme, _Authentication_Settings} = State#state.authentication_setup,
     {Persistence_scheme, _Persistence_settings} = State#state.persistence_setup,
     lager:debug("adb_server -- User trying to log in... Auth Scheme: ~p. Persistence Scheme: ~p ~n", [Authentication_scheme, Persistence_scheme]),
-    LoginResult = gen_authentication:process_request(login, Authentication_scheme, LoginArgs, none, Persistence_scheme),
+    LoginResult = gen_authentication:login(LoginArgs, Authentication_scheme, Persistence_scheme, Socket),
     case LoginResult of
         {?LoggedIn, _AuthenticationInfo} ->
             Communication_module:send(Socket, io_lib:fwrite("User logged in successfully...~n", []));
         {?LoggedOut, FailureInfo} ->
-            case FailureInfo of
-                ?ErrorInvalidPasswordOrUsername ->
-                    Communication_module:send(Socket, io_lib:fwrite("Log in failed. You have entered an invalid username or password... If you would like to create a new user, use the command 'register [user_name] [password]'~n", []));
-                Error ->
-                    Communication_module:send(Socket, io_lib:fwrite("An error occurred while trying to log in. Error: ~p~n", [Error]))
-            end
+            Communication_module:send(Socket, io_lib:fwrite("An error occurred while trying to log in. Error: ~p~n", [FailureInfo]))
     end,
     NewState = State#state{ authentication_status = LoginResult},
     % {_Status, _AuthInfo} = NewState#state.authentication_status, % for possible future uses...
@@ -274,7 +273,7 @@ login(Socket, #state{communication = Communication_module} = State, LoginArgs) -
 logout(Socket, #state{communication = Communication_module} = State) ->
     {Authentication_scheme, _Settings} = State#state.authentication_setup,
     % update the following field of the State: current_db (to 'none') and authentication_status (remove the ?LoggedIn status and the previous user's information)
-    NewState = State#state{ current_db = none, authentication_status = gen_authentication:process_request(logout, Authentication_scheme, none, State#state.authentication_status, none)},
+    NewState = State#state{ current_db = none, authentication_status = gen_authentication:logout(Authentication_scheme, State#state.authentication_status)},
     {_Status, AuthInfo} = State#state.authentication_status,
     lager:debug("adb_server -- User ~p logged out.", [AuthInfo#authentication_info.username]),
     Communication_module:send(Socket, io_lib:fwrite("User logged out...~n", [])),
@@ -287,7 +286,7 @@ register(Socket, #state{communication = Communication_module} = State, RegisterA
     {Authentication_scheme, _Auth_settings} = State#state.authentication_setup,
     {Persistence_scheme, _Persistence_settings} = State#state.persistence_setup,
     lager:debug("adb_server -- Trying to register user... Auth Scheme: ~p ~n", [Authentication_scheme]),
-    case gen_authentication:process_request(register, Authentication_scheme, RegisterArgs, none, Persistence_scheme) of
+    case gen_authentication:register(RegisterArgs, Authentication_scheme, Persistence_scheme, Socket) of
         {ok, _} ->
             Communication_module:send(Socket, io_lib:fwrite("User registered...~n", []));
         {error, Error} ->
