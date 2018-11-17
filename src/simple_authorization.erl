@@ -5,8 +5,7 @@
 
 -behaviour(gen_authorization).
 
-% API functions
-
+% gen_authorization callbacks
 -export([
 	init/2,
 	request_permission/4,
@@ -43,8 +42,8 @@ init(_Authentication_settings, {Persistence_scheme, Persistence_settings}) ->
 			lager:debug("simple_authorization -- ~p not found, creating a new one...", [?AuthorizationDBName]),
 			gen_persistence:process_request(create_db, none, ?AuthorizationDBName, Persistence_scheme, Persistence_settings),
 			% create these permission docs for the critical databases (Authentication and Authorization), in order to avoid granting owner permission to anyone who first requests permission to these DBs
-			gen_persistence:process_request(save_key, list_to_atom(?AuthorizationDBName), {adb_authentication:get_hash_as_hex(?AuthenticationDBName), "[]"}, Persistence_scheme, none),
-			gen_persistence:process_request(save_key, list_to_atom(?AuthorizationDBName), {adb_authentication:get_hash_as_hex(?AuthorizationDBName), "[]"}, Persistence_scheme, none);
+			gen_persistence:process_request(save_key, list_to_atom(?AuthorizationDBName), {auth_utils:get_hash_as_hex(?AuthenticationDBName), "[]"}, Persistence_scheme, none),
+			gen_persistence:process_request(save_key, list_to_atom(?AuthorizationDBName), {auth_utils:get_hash_as_hex(?AuthorizationDBName), "[]"}, Persistence_scheme, none);
 		Error ->
 			lager:debug("simple_authorization -- Error while trying to connect to ~p: ~p", [?AuthorizationDBName, Error]),
 			Error
@@ -74,7 +73,7 @@ request_permission(Persistence_scheme, Database, Username, {Command, _Args}) whe
 % this DB doesn't exist yet), he/she gets owner access to it. This will not happen to critical databases, such as AuthenticationDatabase or
 % AuthorizationDatabase, since they are already created when this module is initialized.
 request_permission(Persistence_scheme, Database, Username, Request = {Command, _Args}) ->
-	Database_hash = adb_authentication:get_hash_as_hex(Database),
+	Database_hash = auth_utils:get_hash_as_hex(Database),
 	case gen_persistence:process_request(lookup, list_to_atom(?AuthorizationDBName), Database_hash, Persistence_scheme, none) of
 		{ok, Permissions_doc} ->
 			lager:debug("simple_authorization -- Permissions document of ~p found. Checking if user ~p has access to the request ~p...~n", [Database, Username, Request]),
@@ -109,7 +108,7 @@ grant_permission(Persistence_scheme, Database, {Target_username, Permission_in_A
 % if the user already had certain permission upon that DB, that permission is updated to the new given permission
 % if the permission is granted successfully, the function returns {ok, Permission_as_string}, and {error, Error}, otherwise.
 grant_permission(Persistence_scheme, Database, {Target_username, Permission_in_API_format}) ->
-	Database_hash = adb_authentication:get_hash_as_hex(Database),
+	Database_hash = auth_utils:get_hash_as_hex(Database),
 	Desired_permission = permission_API_format_to_integer(Permission_in_API_format),
 	case gen_persistence:process_request(lookup, list_to_atom(?AuthorizationDBName), Database_hash, Persistence_scheme, none) of
 		{ok, Permissions_doc} ->
@@ -143,7 +142,7 @@ revoke_permission(Persistence_scheme, Database, Username) when is_atom(Database)
 % if the revocation is successful, this function returns {ok, RevokedPermission},
 % and, if some error occurs, it returns {error, Error}
 revoke_permission(Persistence_scheme, Database, Username) ->
-	Database_hash = adb_authentication:get_hash_as_hex(Database),
+	Database_hash = auth_utils:get_hash_as_hex(Database),
 	case gen_persistence:process_request(lookup, list_to_atom(?AuthorizationDBName), Database_hash, Persistence_scheme, none) of
 		{ok, Permissions_doc} ->
 			Permissions = jsone:decode(list_to_binary(Permissions_doc), [{object_format, proplist}]),
@@ -167,7 +166,7 @@ show_permission(Persistence_scheme, Database, Username) when is_atom(Database)->
 % if the fetching is successful, this function returns {ok, Permission_as_string},
 % and, if some error occurs, it returns {error, Error}
 show_permission(Persistence_scheme, Database, Username) ->
-	Database_hash = adb_authentication:get_hash_as_hex(Database),
+	Database_hash = auth_utils:get_hash_as_hex(Database),
 	case gen_persistence:process_request(lookup, list_to_atom(?AuthorizationDBName), Database_hash, Persistence_scheme, none) of
 		{ok, Permissions_doc} ->
 			Permissions = jsone:decode(list_to_binary(Permissions_doc), [{object_format, proplist}]),

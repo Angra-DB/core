@@ -1,0 +1,2 @@
+%%-define(UsernamesDocName, "AdbCertAuthenticationUserDocument").
+-define(UsernamesDocKey, "EA9F5FF47927249C8687A77F4505F7E9"). % This key was result of the call of auth_utils:get_hash_as_hex("AdbCertAuthenticationUserDocument").

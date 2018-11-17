@@ -113,6 +113,7 @@ code_change(_OldVsn, State, _Extra) ->
 %   grant_permission <username> <permission>    (the format of the permission depends on the authorization scheme)
 %   revoke_permission <username>
 %   show_permission <username>
+
 %%% =========================================================
 process_request(Socket, #state{communication = Communication_module} = State, RawData) ->
     try
@@ -175,8 +176,8 @@ evaluate_authenticated_request(Socket, #state{communication = Communication_modu
             show_permission(Socket, State, Show_permission_args);
         {"connect", Database} ->
             connect(Socket, State, Database);
-        {"register", {Username, Password}} ->
-            register(Socket, State, Username, Password);
+        {"register", RegisterArgs} ->
+            register(Socket, State, RegisterArgs);
         {"create_db", Database} ->
             persist(Socket, State, Database, Tokens),
             State;
@@ -188,13 +189,15 @@ evaluate_authenticated_request(Socket, #state{communication = Communication_modu
 evaluate_not_authenticated_request(Socket, #state{communication = Communication_module} = State, Tokens) ->
     lager:debug("adb_server -- Evaluating non-authenticated request... Tokens: ~p", [Tokens]),
     case Tokens of
-        {"login", {Username, Password}} ->
-            login(Socket, State, Username, Password);
+        {"login", LoginArgs} ->
+            login(Socket, State, LoginArgs);
         {"logout", _} ->
             Communication_module:send(Socket, io_lib:fwrite("You are already logged out.~n", [])),
             State;
-        {"register", {Username, Password}} ->
-            register(Socket, State, Username, Password);
+        {"register", RegisterArgs} ->
+            register(Socket, State, RegisterArgs);
+        {"test", _} ->
+            test(Socket, State);
         _ ->
             Communication_module:send(Socket, io_lib:fwrite("You are not logged in yet. To do so, use the command 'login [user_name] [password]'. On other hand, to create a new user, use 'register [user_name] [password]' ~n", [])),
             State
@@ -245,20 +248,20 @@ show_permission(Socket, #state{communication = Communication_module} = State, Sh
 %
 % logs in using a given auth scheme (default: adb_authentication)
 %
-login(Socket, #state{communication = Communication_module} = State, Username, Password) ->
+login(Socket, #state{communication = Communication_module} = State, LoginArgs) ->
     {Authentication_scheme, _Authentication_Settings} = State#state.authentication_setup,
     {Persistence_scheme, _Persistence_settings} = State#state.persistence_setup,
-    lager:debug("adb_server -- User ~p trying to log in... Auth Scheme: ~p. Persistence Scheme: ~p ~n", [Username, Authentication_scheme, Persistence_scheme]),
-    LoginResult = gen_authentication:process_request(login, Authentication_scheme, Username, Password, none, Persistence_scheme),
+    lager:debug("adb_server -- User trying to log in... Auth Scheme: ~p. Persistence Scheme: ~p ~n", [Authentication_scheme, Persistence_scheme]),
+    LoginResult = gen_authentication:process_request(login, Authentication_scheme, LoginArgs, none, Persistence_scheme),
     case LoginResult of
         {?LoggedIn, _AuthenticationInfo} ->
-            Communication_module:send(Socket, io_lib:fwrite("User ~p logged in successfully...~n", [Username]));
+            Communication_module:send(Socket, io_lib:fwrite("User logged in successfully...~n", []));
         {?LoggedOut, FailureInfo} ->
             case FailureInfo of
                 ?ErrorInvalidPasswordOrUsername ->
                     Communication_module:send(Socket, io_lib:fwrite("Log in failed. You have entered an invalid username or password... If you would like to create a new user, use the command 'register [user_name] [password]'~n", []));
                 Error ->
-                    Communication_module:send(Socket, io_lib:fwrite("An internal error occurred while trying to log in. Error: ~p~n", [Error]))
+                    Communication_module:send(Socket, io_lib:fwrite("An error occurred while trying to log in. Error: ~p~n", [Error]))
             end
     end,
     NewState = State#state{ authentication_status = LoginResult},
@@ -271,7 +274,7 @@ login(Socket, #state{communication = Communication_module} = State, Username, Pa
 logout(Socket, #state{communication = Communication_module} = State) ->
     {Authentication_scheme, _Settings} = State#state.authentication_setup,
     % update the following field of the State: current_db (to 'none') and authentication_status (remove the ?LoggedIn status and the previous user's information)
-    NewState = State#state{ current_db = none, authentication_status = gen_authentication:process_request(logout, Authentication_scheme, none, none, State#state.authentication_status, none)},
+    NewState = State#state{ current_db = none, authentication_status = gen_authentication:process_request(logout, Authentication_scheme, none, State#state.authentication_status, none)},
     {_Status, AuthInfo} = State#state.authentication_status,
     lager:debug("adb_server -- User ~p logged out.", [AuthInfo#authentication_info.username]),
     Communication_module:send(Socket, io_lib:fwrite("User logged out...~n", [])),
@@ -280,15 +283,15 @@ logout(Socket, #state{communication = Communication_module} = State) ->
 %
 % registers a user with a given auth and persistence scheme
 %
-register(Socket, #state{communication = Communication_module} = State, Username, Password) ->
+register(Socket, #state{communication = Communication_module} = State, RegisterArgs) ->
     {Authentication_scheme, _Auth_settings} = State#state.authentication_setup,
     {Persistence_scheme, _Persistence_settings} = State#state.persistence_setup,
-    lager:debug("adb_server -- Trying to register user ~p... Auth Scheme: ~p ~n", [Username, Authentication_scheme]),
-    case gen_authentication:process_request(register, Authentication_scheme, Username, Password, none, Persistence_scheme) of
+    lager:debug("adb_server -- Trying to register user... Auth Scheme: ~p ~n", [Authentication_scheme]),
+    case gen_authentication:process_request(register, Authentication_scheme, RegisterArgs, none, Persistence_scheme) of
         {ok, _} ->
-            Communication_module:send(Socket, io_lib:fwrite("User ~p registered...~n", [Username]));
+            Communication_module:send(Socket, io_lib:fwrite("User registered...~n", []));
         {error, Error} ->
-            Communication_module:send(Socket, io_lib:fwrite("User ~p could not be registered. Error: ~p~n", [Username, Error]))
+            Communication_module:send(Socket, io_lib:fwrite("User could not be registered. Error: ~p~n", [Error]))
     end,
     State.
 
@@ -338,7 +341,7 @@ preprocess(RawData) ->
     end.
 
 filter_command(Command) ->
-    ValidCommands = ["save", "save_key", "lookup", "update", "delete", "connect", "create_db", "delete_db", "query_term", "login", "logout", "register", "grant_permission", "revoke_permission", "show_permission"],
+    ValidCommands = ["test", "save", "save_key", "lookup", "update", "delete", "connect", "create_db", "delete_db", "query_term", "login", "logout", "register", "grant_permission", "revoke_permission", "show_permission"],
     [X || X <- ValidCommands, X =:= Command].
 
 split(Str) ->
@@ -346,3 +349,11 @@ split(Str) ->
     Pred = fun(A) -> A =/= $  end,
     {Command, Args} = lists:splitwith(Pred, Stripped),
     {Command, string:strip(Args)}.
+
+test(Socket, #state{communication = Communication_module} = State) ->
+    case ssl:peercert(Socket) of
+        {error, no_peercert} ->
+            false;
+        {ok, EncodedCert} ->
+            Communication_module:send(Socket, io_lib:fwrite("Cert: ~p~n", [public_key:pkix_decode_cert(EncodedCert)]))
+    end.

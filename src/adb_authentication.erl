@@ -4,15 +4,12 @@
 
 -behaviour(gen_authentication).
 
-% API functions
-
+% gen_authentication callbacks
 -export([
 	init/2,
-	login/3,
+	login/2,
 	logout/1,
-	register/3,
-	get_hash_as_hex/2,
-	get_hash_as_hex/1
+	register/2
 ]).
 
 
@@ -22,8 +19,8 @@
 % the salt (more information can be added in the future).
 
 
-% initializes the adb_authentication module. It creates a db for the users' authentication infos, if it does
-% not exist (that is why it needs to know the persistence setup).
+% initializes the adb_cert_authentication module. It creates a db for the users' authentication infos, if it does not exist
+% using AngraDB gen_persistence(that is why it needs to know the persistence setup).
 init(_Authentication_settings, {Persistence_scheme, Persistence_settings}) ->
 	lager:debug("adb_authentication -- Initializing adb_authentication module...", []),
 	case gen_persistence:process_request(connect, none, ?AuthenticationDBName, Persistence_scheme, Persistence_settings) of
@@ -41,8 +38,8 @@ init(_Authentication_settings, {Persistence_scheme, Persistence_settings}) ->
 % verifies the response to the challenge, and returns the filled {?LoggedIn, #authentication_info} tuple if everything is ok.
 % otherwise, it returns {?LoggedOut, ?ErrorInvalidPasswordOrUsername} in case the username or password are invalid,
 % or {?LoggedOut, _} if any other login failure/error occurs
-login(Username, Typed_password, Persistence_scheme) ->
-	Username_hash = get_hash_as_hex(Username),
+login({Username, Typed_password}, Persistence_scheme) ->
+	Username_hash = auth_utils:get_hash_as_hex(Username),
 	case gen_persistence:process_request(lookup, list_to_atom(?AuthenticationDBName), Username_hash, Persistence_scheme, none) of
 		{ok, Doc} ->
 			User_infos = jsone:decode(list_to_binary(Doc), [{object_format, proplist}]),
@@ -74,8 +71,8 @@ logout(_Authentication_status) ->
 % the password is hashed using pbkdf2 (with the parameters Pbkdf2_hash_algorithm, Pbkdf2_iterations and Pbkdf2_derived_key_length, defined in "adb_authentication.hrl"),
 % before being stored on the document
 % todo: find a way to use less conversions (like list_to_binary, binary_to_list, and so on...)
-register(Username, Password, Persistence_scheme) ->
-	Username_hash = get_hash_as_hex(Username), % hash (binary converted to [string] hex) used to find the document that stores the user's data
+register({Username, Password}, Persistence_scheme) ->
+	Username_hash = auth_utils:get_hash_as_hex(Username), % hash (binary converted to [string] hex) used to find the document that stores the user's data
 	User_salt = randomstring:get(32, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"), % 32 is the recommended size of a salt
 	{ok, Derived_key} = pbkdf2:pbkdf2(?Pbkdf2_hash_algorithm, list_to_binary(Password), list_to_binary(User_salt), ?Pbkdf2_iterations, ?Pbkdf2_derived_key_length),
 	User_doc = jsone:encode([{password, binary_to_list(Derived_key)}, {salt, User_salt}]),
@@ -88,11 +85,3 @@ register(Username, Password, Persistence_scheme) ->
 			end;
 		_Error -> {error, ?ErrorUserAlreadyExists}
 	end.
-
-% calculates the md5 hash, and then converts the digest to hex (as list), in the expected format of a doc key.
-get_hash_as_hex(Data) ->
-	get_hash_as_hex(Data, md5).
-
-% calculates the hash using the given algorithm, and then converts the digest to hex (as list), in the expected format of a doc key.
-get_hash_as_hex(Data, Hash_algorithm) ->
-binary_to_list(bin_to_hex:bin_to_hex(crypto:hash(Hash_algorithm, Data))).

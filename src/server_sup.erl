@@ -87,7 +87,7 @@ setup_communication(Args) ->
       ssl:start(),
       % WARNING: {ACTIVE, TRUE} MIGHT BE PROBLEM! ( http://erlang.org/doc/man/ssl.html#handshake-3 )
       % The actual problem is that Erlang documentation is not very clear whether "active" needs to be false _only_ when upgrading (which I believe to be the case)
-      {ok, LSock} = ssl:listen(Port, [{active,true}, {reuseaddr, true} | SSL_options]),
+      {ok, LSock} = ssl:listen(Port, [{active,true}, {reuseaddr, true}, {verify, verify_peer} | SSL_options]),
       lager:info("Listening to requests under SSL on port ~w ~n", [Port]),
       {LSock, ssl}
   end.
