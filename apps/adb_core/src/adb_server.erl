@@ -39,9 +39,12 @@
 -define(CONNECT_CMD, "connect").
 -define(CREATE_DB_CMD, "create_db").
 -define(DELETE_DB_CMD, "delete_db").
--define(VALID_COMMANDS, [?SAVE_CMD, ?SAVE_KEY_CMD, ?LOOKUP_CMD, ?UPDATE_CMD, ?DELETE_CMD, ?CONNECT_CMD, ?CREATE_DB_CMD, ?DELETE_DB_CMD]).
+-define(QUERY, "query").
+-define(QUERY_TERM, "query_term").
+-define(BULK_LOOKUP, "bulk_lookup").
+-define(VALID_COMMANDS, [?SAVE_CMD, ?SAVE_KEY_CMD, ?LOOKUP_CMD, ?UPDATE_CMD, ?DELETE_CMD, ?CONNECT_CMD, ?CREATE_DB_CMD, ?DELETE_DB_CMD, ?QUERY, ?QUERY_TERM, ?BULK_LOOKUP]).
 
--record(state, {lsock, parent, current_db = none}). % a record for keeping the server state
+-record(state, {lsock, parent, current_db = none, waiting_request = false, body = {}}). % a record for keeping the server state
 
 %%%======================================================
 %%% API
@@ -74,9 +77,25 @@ handle_call(Msg, _From, State) ->
 handle_cast(stop, State) ->
     {stop, normal, State}.
 
+handle_info({tcp, Socket, RawData}, State = #state{ waiting_request = true, body = Request}) ->
+    {NewRequest, Concatenated, Size} = update_request_data(Request, string:chomp(RawData)),
+    case list_to_integer(Size) > length(Concatenated) of
+        true -> 
+            {noreply, State#state{waiting_request = true, body = NewRequest}};
+        _ ->
+            NewState = process_request(Socket, State, NewRequest),
+            {noreply, NewState#state{ waiting_request = false }}
+    end;
+
 handle_info({tcp, Socket, RawData}, State) ->
-    NewState = process_request(Socket, State, RawData),
-    {noreply, NewState};
+    case preprocess_input(RawData) of
+        {wait, Request} ->
+            {noreply, State#state{waiting_request = true, body = Request}};
+        Tokens ->
+            NewState = process_request(Socket, State, Tokens),
+            {noreply, NewState#state{ waiting_request = false }}
+    end;
+    
 
 handle_info({tcp_closed, _Socket}, State) ->
     {stop, normal, State};
@@ -106,9 +125,9 @@ code_change(_OldVsn, State, _Extra) ->
 %   update <Id> <Document>
 %   delete <Id>
 %%% =========================================================
-process_request(Socket, State, RawData) ->
+
+process_request(Socket, State, Tokens) ->
     try
-      Tokens = preprocess_input(RawData),
       evaluate_request(Socket, State, Tokens)
     catch
       _Class:Err -> gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Err]))
@@ -129,35 +148,62 @@ evaluate_request(Socket, State, Tokens) ->
 % connects to an existing database.
 %
 connect(Socket, State, Database) ->
-    case adb_dist_server:forward_request(connect, Database) of
-        {error, db_does_not_exist} -> gen_tcp:send(Socket, io_lib:fwrite("Database ~p does not exist.~n", [Database])),
-                                      State;
-        {ok, _}                    -> NewState = State#state{ current_db = Database },
-                                      gen_tcp:send(Socket, io_lib:fwrite("Database set to ~p...~n", [Database])),
-                                      NewState
-    end.
-
+	case adb_dist_server:forward_request(connect, Database) of
+		{error, db_does_not_exist} ->
+			send_response(Socket, "Database ~p does not exist~n", [Database]),
+			State;
+		{ok, _} -> NewState = State#state{ current_db = Database },
+			send_response(Socket, "Database set to ~p...~n", [Database]),
+			NewState
+	end.
+	
 create_db(Socket, Database) ->
-    Response = adb_dist_server:forward_request(create_db, Database),
-    gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Response])).
-
+	Response = adb_dist_server:forward_request(create_db, Database),
+	send_response(Socket, "~p~n", [Response]).
+	
 persist(Socket, none, _) ->
-    gen_tcp:send(Socket, io_lib:fwrite("Database not set. Please use the 'use' command.~n", []));
+	send_response(Socket, "Database not set. Please use the 'use' command.~n", []);
 persist(Socket, CurrentDB, {Command, Args}) ->
-    Response = adb_dist_server:forward_request(list_to_atom(Command), {CurrentDB, Args}),
-    gen_tcp:send(Socket, io_lib:fwrite("~p~n", [Response])).
+	Response = adb_dist_server:forward_request(list_to_atom(Command), {CurrentDB, Args}),
+	send_response(Socket, "~p~n", [Response]).
 
 preprocess_input(RawData) ->
-    ChompedData = string:chomp(RawData),
-    {Command, Args} = split_next_token(ChompedData),
-    case {lists:member(Command, ?VALID_COMMANDS), Command} of
-        {false, _}         -> {invalid, Command};
-        {_, ?UPDATE_CMD}   -> {Command, split_next_token(Args)};
-        {_, ?SAVE_KEY_CMD} -> {Command, split_next_token(Args)};
-        {_, _}             -> {Command, Args}
-    end.
+	ChompedData = string:chomp(RawData),
+	{Command, Args} = split_next_token(ChompedData),
+	case {lists:member(Command, ?VALID_COMMANDS), Command} of
+		{false, _} -> 
+			{invalid, Command};
+		{_, C} when C =:= ?SAVE_KEY_CMD; C =:= ?UPDATE_CMD -> 
+			{Key, DocInfo} = split_next_token(Args),
+			get_doc_arguments(DocInfo, fun({Size, Doc}) -> {Command, {Key, Size, Doc}} end);
+		{_, ?SAVE_CMD} ->
+			get_doc_arguments(Args, fun({Size, Doc}) -> {Command, {Size, Doc}} end);
+		{_, _} -> 
+			{Command, Args}
+	end.
 
 split_next_token(Str) ->
-    Trim = string:trim(Str, both, " "),
-    [Head|Tail] = string:split(Trim, " "),
-    {Head, string:trim(Tail)}.
+	Trim = string:trim(Str, both, " "),
+	[Head|Tail] = string:split(Trim, " "),
+	{Head, string:trim(Tail)}.
+
+get_doc_arguments(Args, Map) ->
+	Split = {Size, Doc} = split(Args),
+	case list_to_integer(Size) > length(Doc) of
+			true ->
+				{wait, Map(Split)};
+			false ->
+				Map(Split)
+	end.
+
+send_response(Socket, Format, Arg) when is_list(Format) ->
+	F = lists:flatten(io_lib:fwrite(Format, Args)),
+	gen_tcp:send(Socket, io_lib:fwrite("~p ~s", [length(F), F])),
+
+update_request_data({Command, {Key, Size, Data}}, NewData) ->
+	Concatenated = Data++NewData,
+	{{Command, {Key, Size, Concatenated}}, Concatenated, Size };
+	
+update_request_data({Command, {Size, Data}}, NewData) ->
+	Concatenated = Data++NewData,
+	{{Command, {Size, Concatenated}}, Concatenated, Size}.

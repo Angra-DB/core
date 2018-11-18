@@ -13,3 +13,4 @@ _build/
 log/
 *.*#
 doc/
+.idea
