@@ -1,10 +1,21 @@
-# Install 
+# Angra DB
 
-   * rebar3 compile
-   * make compile-deps
+## Install
+
+Execute the following commands:
+
+```
+$ rebar3 compile
+$ make compile-deps
+```
    
-# Run
-   * make run 
-   * rebar3 shell
-   * adb_app:kickoff(all).  
+## Run
+
+Execute the following commands:
+
+```
+$ make run 
+$ rebar3 shell --apps adb_core
+```
+> Tip: The flag `--apps` inform which apps should be started on `shell` command.
 

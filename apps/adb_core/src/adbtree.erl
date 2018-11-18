@@ -107,6 +107,26 @@ connect(DBName) ->
 			{error, Error}
 	end.
 
+list_keys(DBName) ->
+	LeafPosList = adb_doc_list:get_list(DBName),
+	NameIndex = DBName++"Index.adb",
+	{ok, File} = file:open(NameIndex, [read, binary]),
+	{Settings, Btree} = get_header(File),
+	lists:concat(read_keys(File, Settings, Btree, LeafPosList)).
+
+read_keys(_, _, _, []) ->
+	[];
+read_keys(File, Settings, Btree, [Head | Tail]) ->
+	file:position(File, {bof, Head}),
+	{ok, Type} = file:read(File, 1),
+	case Type of
+		<<?Leaf:1/unit:8>> ->
+			Leaf = read_leaf(File, Settings, Btree),
+			[ Leaf#leaf.keys | read_keys(File, Settings, Btree, Tail)];
+		_ ->
+			throw({erro, "Leaf type mismatch."})
+	end.
+	
 
 
 compress_index(DBName) ->
@@ -116,9 +136,7 @@ compress_index(DBName) ->
 		{Settings, Btree} = get_header(FpOld),
 		{ok, FpNew} = file:open(NameIndex++"_temp.adb", [read, write, binary]),
 		write_header(FpNew, Settings, Btree, ?SizeOfHeader),
-		io:fwrite("antes"),
 		{ok, NewRoot} = compress_index(FpOld, Btree, FpNew, Settings),
-		io:fwrite("depois"),
 		write_header(FpNew, Settings, Btree, NewRoot),
 		file:close(FpOld),
 		file:close(FpNew),

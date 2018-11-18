@@ -10,7 +10,7 @@ setup([DBName]) ->
 
 connect(DB) ->
     case adbtree:connect(DB) of
-        {ok, Tree} ->
+        {ok, _Tree} ->
             ok;
         {error, enoent} ->
             db_does_not_exist
