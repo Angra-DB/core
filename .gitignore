@@ -14,3 +14,4 @@ log/
 *.*#
 doc/
 .idea
+rebar.lock
