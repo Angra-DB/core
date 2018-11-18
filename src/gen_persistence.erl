@@ -16,7 +16,7 @@ process_request(connect, _, DB, Child, Settings) ->
     Child:connect(DB, Settings);
 
 process_request(save, DB, {_, Doc}, Child, _) ->
-    lager:info("saving doc ~s", [Doc]),
+    % lager:info("saving doc ~s", [Doc]),
     Child:save(DB, gen_key(), Doc);
 
 process_request(save_key, DB, {Key, _, Doc}, Child, _) ->

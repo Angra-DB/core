@@ -23,7 +23,7 @@ process_query([], CurrentResult, _) ->
 
 process_query([S | Statements], CurrentResult, DbName) ->
   {Command, Args} = parse_statement(S),
-  lager:info("Command = ~p, Args = ~p", [Command, Args]),
+  lager:info("Command = ~p, Args = ~p, CurrentResult = ~p", [Command, Args, CurrentResult]),
   process_command(list_to_atom(Command), Args, CurrentResult, DbName, Statements).
 
 parse_statement(Line) ->
@@ -39,7 +39,6 @@ process_command('and', _Args, CurrentResult, DbName, Statements) ->
 
 process_command('or', _Args, CurrentResult, DbName, Statements) ->
   RestResult = process_query(Statements, [], DbName),
-  lager:info("rest ~p and current ~p", [RestResult, CurrentResult]),
   join(RestResult, CurrentResult);
 
 process_command(filter_field, FieldNames, CurrentResult, DbName, Statements) ->
@@ -69,11 +68,7 @@ process_field([F | FieldNames], DbName) ->
   case FieldNames of
     [] -> filter_expression(group_by(fun adbindexer:extract_key_from_record/1, CurrentFieldResult), none, fun is_in_interval/2, fun(I) -> I end);
     _ ->
-      lager:info("Current Result = ~p", [CurrentFieldResult]),
       InnerFieldResult = process_field(FieldNames, DbName),
-      lager:info("Inner Result = ~p", [InnerFieldResult]),
-      R = group_by(fun adbindexer:extract_key_from_record/1, CurrentFieldResult),
-      lager:info("Grouped ~p", [R]),
       filter_expression(group_by(fun adbindexer:extract_key_from_record/1, CurrentFieldResult), InnerFieldResult, fun is_in_interval/2, fun(I) -> I end)
   end.
 
@@ -96,7 +91,6 @@ filter_expression(_, [], _, _) ->
   [];
 
 filter_expression([C = CurrentExp | CurrentExps], [T = #query_result{ key = TailExpKey, positions = TailExpPositions } | TailExps], FilterFunction, MapQueryResultFunction) ->
-  lager:info("Exp = ~p with Tail = ~p", [C, T]),
   {CurrentExpKey, CurrentExpPostings} = get_expression_item(CurrentExp),
   case CurrentExpKey > TailExpKey of
     true ->
@@ -104,7 +98,12 @@ filter_expression([C = CurrentExp | CurrentExps], [T = #query_result{ key = Tail
     false when CurrentExpKey < TailExpKey ->
       filter_expression(CurrentExps, [T | TailExps], FilterFunction, MapQueryResultFunction);
     false ->
-      [#query_result{ key = CurrentExpKey, positions = filter_expression_positions(CurrentExpPostings, TailExpPositions, FilterFunction, MapQueryResultFunction) } | filter_expression(CurrentExps, TailExps, FilterFunction, MapQueryResultFunction)]
+      case filter_expression_positions(CurrentExpPostings, TailExpPositions, FilterFunction, MapQueryResultFunction) of
+        [] -> 
+          filter_expression(CurrentExps, TailExps, FilterFunction, MapQueryResultFunction);
+        L ->
+          [#query_result{ key = CurrentExpKey, positions = L } | filter_expression(CurrentExps, TailExps, FilterFunction, MapQueryResultFunction)]
+      end
   end.
 
 filter_expression_positions([], _, _, _) ->
@@ -117,7 +116,6 @@ filter_expression_positions(CurrentPostings, [], FilterFunction, _) ->
 filter_expression_positions([P | CurrentPostings], TailExpressionPositions, FilterFunction, MapQueryResultFunction) ->
   Pred = fun(X) -> FilterFunction(X, P) end,
   Map = [ MapQueryResultFunction(Interval) || Interval <- TailExpressionPositions, Pred(Interval) ],
-  lager:info("Mapped ~p", [Map]),
   Map ++ filter_expression_positions(CurrentPostings, TailExpressionPositions, FilterFunction, MapQueryResultFunction).
 
 is_in_interval(none, Posting) ->
