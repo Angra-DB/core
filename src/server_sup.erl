@@ -21,6 +21,32 @@
 
 -define(DEFAULT_PORT, 1234).
 
+-define(DEFAULT_SSL_OPTIONS, [
+  {active,true},
+  {reuseaddr, true},
+  {verify, verify_peer},
+  {verify_fun, {fun(_Cert, valid, UserState) ->
+    lager:debug("adb_server (x509-path validation) -- CA Certificate valid. ~n", []),
+    {valid, UserState};
+
+    (_Cert, valid_peer, UserState) ->
+      lager:debug("adb_server (x509-path validation) -- Certificate valid. ~n", []),
+      {valid, UserState};
+
+    (_Cert,{extension, _}, UserState) ->
+      lager:debug("adb_server (x509-path validation) -- Unknown extension found ~n"),
+      {unknown, UserState};
+
+    %% Allow self-signed certificates
+%%    (_Cert, {bad_cert, selfsigned_peer}, UserState) ->
+%%      {valid, UserState};
+
+    (_Cert,{bad_cert, _} = Reason, _) ->
+      lager:warning("adb_server -- (x509-path validation) Bad certificate! Error: ~p~n", [Reason]),
+      {fail, Reason}
+  end, []}}
+]).
+
 start_link() ->
     start_link([]).
 
@@ -61,6 +87,9 @@ setup_persistence(Args) ->
 setup_authentication(Args) ->
   lager:info("Setting up the authentication module.", []),
   case proplists:get_value(authentication, Args) of
+    {{name, adb_cert_authentication}, Settings } ->
+      lager:info("starting ADB Cert Authentication..."),
+      {adb_cert_authentication, Settings};
     {{name, _}, Settings } ->
       lager:info("starting ADB Authentication..."),
       {adb_authentication, Settings}
@@ -87,7 +116,7 @@ setup_communication(Args) ->
       ssl:start(),
       % WARNING: {ACTIVE, TRUE} MIGHT BE PROBLEM! ( http://erlang.org/doc/man/ssl.html#handshake-3 )
       % The actual problem is that Erlang documentation is not very clear whether "active" needs to be false _only_ when upgrading (which I believe to be the case)
-      {ok, LSock} = ssl:listen(Port, [{active,true}, {reuseaddr, true}, {verify, verify_peer} | SSL_options]),
+      {ok, LSock} = ssl:listen(Port, ?DEFAULT_SSL_OPTIONS ++ SSL_options),
       lager:info("Listening to requests under SSL on port ~w ~n", [Port]),
       {LSock, ssl}
   end.

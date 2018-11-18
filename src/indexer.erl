@@ -95,14 +95,14 @@ handle_call(Request, _From, State = #state {db_name = DbName, index = Index}) ->
       Reply = adbindexer:find(Term, Index, DbName, fun adbindexer:hash/1),
       NewIndex = Index;
     {save, {Value, Key, Version}} ->
-      lager:info("Saving document: ~s", [Value]),
+      lager:debug("Saving document: ~s", [Value]),
       { ok, Tokens } = token_parser:receive_json(Value),
       AddedIndex = adbindexer:update_mem_index(Tokens, Key, Version, Index, DbName),
       Reply = ok,
       NewIndex = flush_if_full(AddedIndex, State);
     {update, {Value, Key, Version}} ->
       { ok, Tokens } = token_parser:receive_json(Value),
-      lager:info("Saving document: ~p, with tokens ~p", [Value, Tokens]),
+      lager:debug("Saving document: ~p, with tokens ~p", [Value, Tokens]),
       AddedIndex = adbindexer:update_mem_index(Tokens, Key, Version, Index, DbName),
       Reply = ok,
       NewIndex = flush_if_full(AddedIndex, State);

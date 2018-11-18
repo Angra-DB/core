@@ -75,7 +75,7 @@ handle_register({Username, Password}, Persistence_scheme, _Socket) ->
 	Username_hash = auth_utils:get_hash_as_hex(Username), % hash (binary converted to [string] hex) used to find the document that stores the user's data
 	User_salt = randomstring:get(32, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"), % 32 is the recommended size of a salt
 	{ok, Derived_key} = pbkdf2:pbkdf2(?Pbkdf2_hash_algorithm, list_to_binary(Password), list_to_binary(User_salt), ?Pbkdf2_iterations, ?Pbkdf2_derived_key_length),
-	User_doc = jsone:encode([{password, binary_to_list(Derived_key)}, {salt, User_salt}]),
+	User_doc = jsone:encode([{password, binary_to_list(Derived_key)}, {salt, User_salt}]), % in order to make jsone:encode work correctly, it is good to avoid using a binary as value, and thats why I transformed it to string
 	AuthDBNameAtom = list_to_atom(?AuthenticationDBName),
 	case gen_persistence:process_request(lookup, AuthDBNameAtom, Username_hash, Persistence_scheme, none) of
 		not_found ->

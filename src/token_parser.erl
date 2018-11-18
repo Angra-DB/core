@@ -32,6 +32,8 @@ json_parser(<<Element/binary>>, Count) ->
 
 json_parser([], _) ->
   [];
+json_parser([Head | Tail], Count) when is_list(Head) ->
+  [#token{word=Head, docPos=Count} | json_parser(Tail, Count+1)];
 json_parser([Head | Tail], Count) when is_atom(Head) ->
   [#token{word=atom_to_list(Head), docPos=Count} | json_parser(Tail, Count+1)];
 json_parser([Head | Tail], Count) when is_integer(Head) ->

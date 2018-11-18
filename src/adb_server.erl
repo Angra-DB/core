@@ -85,9 +85,16 @@ handle_info({Protocol_closed, _Socket}, State) when Protocol_closed == tcp_close
 
 % used to initialize this server immediately after the function init/1, as the timeout was set as zero in the tuple returned by it
 handle_info(timeout, #state{lsock = LSock, communication = Communication_module} = State) ->
-    {ok, Sock} = accept_and_handshake(LSock, Communication_module),
-    server_sup:start_child(),
-    {noreply, State#state{ lsock = Sock }}.
+    case accept_and_handshake(LSock, Communication_module) of
+        {ok, Sock} ->
+            lager:debug("adb_server -- Transport accept and handshake done successfully...~n", []),
+            server_sup:start_child(),
+            {noreply, State#state{ lsock = Sock }};
+        {error, Reason} ->
+            lager:warning("adb_server -- Transport accept/handshake failed! Error: ~p~n", [Reason]),
+            server_sup:start_child(),
+            {stop, normal, State}
+    end.
 
 terminate(_Reason, _State) ->
     ok.
@@ -127,18 +134,22 @@ process_request(Socket, #state{communication = Communication_module} = State, Ra
       _Class:Err -> Communication_module:send(Socket, io_lib:fwrite("~p~n", [Err]))
     end.
 
-% do the required transport accepts and protocol handshakes if needed, and then return {ok, Socket}
+% do the required transport accepts and protocol handshakes if needed, and then return {ok, Socket},
+% or {error, Reason} if any error occurs
 accept_and_handshake(ListenSocket, gen_tcp) ->
     lager:debug("adb_server -- doing transport accept on TCP listen socket. (PID: ~p)~n", [self()]),
     % do a simple transport accept on the TCP listen socket
-    {ok, _Socket} = gen_tcp:accept(ListenSocket); % (blocking function)
+    gen_tcp:accept(ListenSocket); % (gen_tcp:accept is a blocking function)
 
-% do the required transport accepts and protocol handshakes if needed, and then return {ok, Socket}
+% do the required transport accepts and protocol handshakes if needed, and then return {ok, Socket},
+% or {error, Reason} if any error occurs
 accept_and_handshake(ListenSocket, ssl) ->
     lager:debug("adb_server -- doing transport accept on SSL listen socket, and then the handshake. (PID: ~p)~n", [self()]),
     % do a transport accept on the SSL listen socket, and then the SSL handshake
-    {ok, HsSocket} = ssl:transport_accept(ListenSocket), % (blocking function)
-    {ok, _Socket} = ssl:handshake(HsSocket).
+    case ssl:transport_accept(ListenSocket) of % (ssl:transport_accept is a blocking function)
+        {ok, HsSocket} -> ssl:handshake(HsSocket);
+        {error, Reason} -> {error, Reason}
+    end.
 
 evaluate_request(Socket, #state{communication = Communication_module} = State, Tokens) ->
     {Logged, User_auth_info} = State#state.authentication_status,
@@ -185,6 +196,9 @@ evaluate_authenticated_request(Socket, #state{communication = Communication_modu
         {"create_db", Database} ->
             persist(Socket, State, Database, Tokens),
             State;
+        {"test", _} ->
+            test(Socket, State),
+            State;
         _ ->
             persist(Socket, State, State#state.current_db, Tokens),
             State
@@ -201,7 +215,8 @@ evaluate_not_authenticated_request(Socket, #state{communication = Communication_
         {"register", RegisterArgs} ->
             register(Socket, State, RegisterArgs);
         {"test", _} ->
-            test(Socket, State);
+            test(Socket, State),
+            State;
         _ ->
             Communication_module:send(Socket, io_lib:fwrite("You are not logged in yet. To do so, use the command 'login [user_name] [password]'. On other hand, to create a new user, use 'register [user_name] [password]' ~n", [])),
             State
@@ -349,10 +364,5 @@ split(Str) ->
     {Command, Args} = lists:splitwith(Pred, Stripped),
     {Command, string:strip(Args)}.
 
-test(Socket, #state{communication = Communication_module} = State) ->
-    case ssl:peercert(Socket) of
-        {error, no_peercert} ->
-            false;
-        {ok, EncodedCert} ->
-            Communication_module:send(Socket, io_lib:fwrite("Cert: ~p~n", [public_key:pkix_decode_cert(EncodedCert)]))
-    end.
+test(Socket, #state{communication = Communication_module, authentication_status = {_, #authentication_info{username = Username}}} = State) ->
+    lager:debug("adb_server -- username:~p", [Username]).
