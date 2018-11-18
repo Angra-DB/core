@@ -65,7 +65,7 @@ handle_logout(_Authentication_status) ->
 
 % saves the username and user's certificate as a DER-encoded binary in a document whose key is the md5 hash of this certificate (converted to hex).
 % the username, if does not already exist, is also saved in the UsernamesDocument, to keep track of the registered usernames.
-% If everything goes well, it will return {ok, DocKey}
+% If everything goes well, it will return {ok, Username}
 % If the chosen username already exists, or other kind of error occurs, it will return {error, ErrorType}
 handle_register({Username, _}, Persistence_scheme, Socket) ->
 	case ssl:peercert(Socket) of
@@ -77,26 +77,27 @@ handle_register({Username, _}, Persistence_scheme, Socket) ->
 			% checking if this certificate is already registered
 			case gen_persistence:process_request(lookup, AuthDBNameAtom, EncodedCertHash, Persistence_scheme, none) of
 				{ok, _} ->
-					lager:debug("adb_cert_authentication -- registering failed: client certificate is already registered.~n", []),
-					{error, certificateAlreadyRegistered};
+					lager:debug("adb_cert_authentication -- register failed: client certificate was already registered with another username.~n", []),
+					{error, certificateAlreadyInUse};
 				not_found ->
 					% now check if this username is already in use
 					{ok, UsernamesDoc} = gen_persistence:process_request(lookup, list_to_atom(?AuthenticationDBName), ?UsernamesDocKey, Persistence_scheme, none),
 					RegisteredUsernames = jsone:decode(list_to_binary(UsernamesDoc)),
-					case lists:member(Username, RegisteredUsernames) of
+					Username_binary = list_to_binary(Username),
+					case lists:member(Username_binary, RegisteredUsernames) of
 						true ->
 							{error, user_already_exists};
 						false ->
-							NewUsernamesDoc = jsone:encode([Username | RegisteredUsernames]),
+							NewUsernamesDoc = jsone:encode([Username_binary | RegisteredUsernames]), % when saving an encoded list of strings, the strings need to be in binary format, because of our indexer parse logic
 							gen_persistence:process_request(update, AuthDBNameAtom, {?UsernamesDocKey, binary_to_list(NewUsernamesDoc)}, Persistence_scheme, none),
 							User_doc = jsone:encode([{username, Username}, {certificate, binary_to_list(EncodedCert)}]), % in order to make jsone:encode work correctly, it is good to avoid using a binary as value, and thats why I transformed it to string
 							case gen_persistence:process_request(save_key, AuthDBNameAtom, {EncodedCertHash, binary_to_list(User_doc)}, Persistence_scheme, none) of
 								{_, {error, ErrorType}} ->
 									lager:debug("adb_cert_authentication -- error while saving user document on AuthenticationDB. Error: ~p~n", [ErrorType]),
 									{error, ErrorType};
-								DocKey ->
-									lager:debug("adb_cert_authentication -- user registered successfully.~n", []),
-									{ok, DocKey}
+								_DocKey ->
+									lager:debug("adb_cert_authentication -- user ~p registered successfully.~n", [Username]),
+									{ok, Username}
 							end
 					end;
 				Error ->

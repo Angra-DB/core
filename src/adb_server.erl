@@ -273,8 +273,8 @@ login(Socket, #state{communication = Communication_module} = State, LoginArgs) -
     lager:debug("adb_server -- User trying to log in... Auth Scheme: ~p. Persistence Scheme: ~p ~n", [Authentication_scheme, Persistence_scheme]),
     LoginResult = gen_authentication:login(LoginArgs, Authentication_scheme, Persistence_scheme, Socket),
     case LoginResult of
-        {?LoggedIn, _AuthenticationInfo} ->
-            Communication_module:send(Socket, io_lib:fwrite("User logged in successfully...~n", []));
+        {?LoggedIn, AuthenticationInfo} ->
+            Communication_module:send(Socket, io_lib:fwrite("User ~p logged in successfully...~n", [AuthenticationInfo#authentication_info.username]));
         {?LoggedOut, FailureInfo} ->
             Communication_module:send(Socket, io_lib:fwrite("An error occurred while trying to log in. Error: ~p~n", [FailureInfo]))
     end,
@@ -291,7 +291,7 @@ logout(Socket, #state{communication = Communication_module} = State) ->
     NewState = State#state{ current_db = none, authentication_status = gen_authentication:logout(Authentication_scheme, State#state.authentication_status)},
     {_Status, AuthInfo} = State#state.authentication_status,
     lager:debug("adb_server -- User ~p logged out.", [AuthInfo#authentication_info.username]),
-    Communication_module:send(Socket, io_lib:fwrite("User logged out...~n", [])),
+    Communication_module:send(Socket, io_lib:fwrite("User ~p logged out...~n", [AuthInfo#authentication_info.username])),
     NewState.
 
 %
@@ -302,8 +302,8 @@ register(Socket, #state{communication = Communication_module} = State, RegisterA
     {Persistence_scheme, _Persistence_settings} = State#state.persistence_setup,
     lager:debug("adb_server -- Trying to register user... Auth Scheme: ~p ~n", [Authentication_scheme]),
     case gen_authentication:register(RegisterArgs, Authentication_scheme, Persistence_scheme, Socket) of
-        {ok, _} ->
-            Communication_module:send(Socket, io_lib:fwrite("User registered...~n", []));
+        {ok, Username} ->
+            Communication_module:send(Socket, io_lib:fwrite("User ~p registered...~n", [Username]));
         {error, Error} ->
             Communication_module:send(Socket, io_lib:fwrite("User could not be registered. Error: ~p~n", [Error]))
     end,

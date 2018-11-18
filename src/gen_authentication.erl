@@ -23,8 +23,8 @@ start({Authentication_scheme, Authentication_settings}, Persistence_setup) ->
 % both elements on its implementation to store, for example, a username and a password.
 % Expected returns:
 % - {?LoggedIn, #authentication_info}, in case the login is successful
-% - {?LoggedOut, ?ErrorInvalidPasswordOrUsername}, in case the login failed because of invalid password/username
-% - {?LoggedOut, none [or ErrorMessage]}, if any other failure/error happens while processing login
+% - {?LoggedOut, invalidPasswordOrUsername}, in case the login failed because of invalid password/username
+% - {?LoggedOut, ErrorType}, if any other failure/error happens while processing login
 login(LoginArgs, Authentication_scheme, Persistence_scheme, Socket) ->
     Authentication_scheme:handle_login(LoginArgs, Persistence_scheme, Socket).
 
@@ -38,8 +38,8 @@ logout(Authentication_scheme, Authentication_status) ->
 % RegisterArgs: a tuple with two elements that were passed after the 'register' command. One authentication module might use
 % both elements on its implementation to store, for example, a username and a password.
 % Expected returns:
-% - {ok, _}, in case the registering is successful (example: {ok, DocKey}
-% - {error, _}, otherwise (example: {error, ?ErrorUserAlreadyExists}, in case the username used already exists)
+% - {ok, Username}, in case the registering is successful
+% - {error, ErrorType}, otherwise (example: {error, userAlreadyExists}, in case the username used already exists)
 register(RegisterArgs, Authentication_scheme, Persistence_scheme, Socket) ->
   Authentication_scheme:handle_register(RegisterArgs, Persistence_scheme, Socket).
 

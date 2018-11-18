@@ -81,7 +81,7 @@ handle_register({Username, Password}, Persistence_scheme, _Socket) ->
 		not_found ->
 			case gen_persistence:process_request(save_key, AuthDBNameAtom, {Username_hash, binary_to_list(User_doc)}, Persistence_scheme, none) of
 				{_, {error, ErrorType}} -> {error, ErrorType};
-				DocKey -> {ok, DocKey}
+				DocKey -> {ok, Username}
 			end;
 		_Error -> {error, user_already_exists}
 	end.
