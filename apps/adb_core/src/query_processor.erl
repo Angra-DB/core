@@ -16,7 +16,7 @@
 
 process_query(Query, DbName, VNodeId) ->
   Statements = get_lines(Query),
-  process_query(Statements, [], DbName).
+  process_query(Statements, [], DbName, VNodeId).
 
 process_query([], CurrentResult, _, _) ->
   CurrentResult;

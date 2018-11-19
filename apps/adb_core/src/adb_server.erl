@@ -188,7 +188,7 @@ split_next_token(Str) ->
 	{Head, string:trim(Tail)}.
 
 get_doc_arguments(Args, Map) ->
-	Split = {Size, Doc} = split(Args),
+	Split = {Size, Doc} = split_next_token(Args),
 	case list_to_integer(Size) > length(Doc) of
 			true ->
 				{wait, Map(Split)};
@@ -196,9 +196,9 @@ get_doc_arguments(Args, Map) ->
 				Map(Split)
 	end.
 
-send_response(Socket, Format, Arg) when is_list(Format) ->
+send_response(Socket, Format, Args) when is_list(Format) ->
 	F = lists:flatten(io_lib:fwrite(Format, Args)),
-	gen_tcp:send(Socket, io_lib:fwrite("~p ~s", [length(F), F])),
+	gen_tcp:send(Socket, io_lib:fwrite("~p ~s", [length(F), F])).
 
 update_request_data({Command, {Key, Size, Data}}, NewData) ->
 	Concatenated = Data++NewData,

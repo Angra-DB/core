@@ -26,12 +26,12 @@ start_child() ->
 init(Args) ->
     {ok, Persistence} = setup_persistence(Args),
 	 {ok, VNodes} = adb_dist_store:get_config(vnodes),
-    PersistSups = [#{id       => adb_utils:get_vnode_process(persist_sup, Id, VNodes), 
+    PersistSups = [#{id => adb_utils:get_vnode_process(persist_sup, Id, VNodes), 
 						   start    => {persist_sup, start_link, [Persistence, Id]}, 
 						   restart  => permanent, 
 						   shutdown => infinity, 
 						   type     => supervisor, 
-						   modules  => [persist_sup]}, || Id <- lists:seq(1, VNodes)],
+						   modules  => [persist_sup]} || Id <- lists:seq(1, VNodes)],
     VNodeServer = #{id       => adb_vnode_server,
                     start    => {adb_vnode_server, start_link, []},
                     restart  => permanent,
@@ -39,7 +39,7 @@ init(Args) ->
                     type     => worker,
                     modules  => [adb_vnode_server]},
     RestartStrategy = {one_for_one, 1000, 3600},
-    {ok, {RestartStrategy, [VNodeServer|Cores]}}.
+    {ok, {RestartStrategy, [VNodeServer|PersistSups]}}.
 
 %%==============================================================================
 %% Internal functions
