@@ -12,7 +12,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0]).
+-export([start_link/2]).
 -export([spawn_if_exists/2]).
 -export([start_child/2]).
 
@@ -26,7 +26,7 @@
 %%%===================================================================
 
 spawn_if_exists(DbName, VNodeId) ->
-	SupName = adb_utils:get_vnode_process(?MODULE, VNodeId)
+	SupName = adb_utils:get_vnode_process(?MODULE, VNodeId),
   case adbtree:exists(DbName) of
     true ->
       case supervisor:start_child(SupName, children_spec(DbName, VNodeId)) of
@@ -41,8 +41,8 @@ spawn_if_exists(DbName, VNodeId) ->
   end.
 
 start_child(DbName, VNodeId) ->
-	SupName = adb_utils:get_vnode_process(?MODULE, VNodeId)
-  supervisor:start_child(SupName, children_spec(DbName)).
+	SupName = adb_utils:get_vnode_process(?MODULE, VNodeId),
+  supervisor:start_child(SupName, children_spec(DbName, VNodeId)).
 
 children_spec(DbName, VNodeId) ->
   Restart = permanent,

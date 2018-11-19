@@ -12,8 +12,8 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/1,
-  start_child/1]).
+-export([start_link/2,
+  start_child/2]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -74,4 +74,4 @@ format_sup_name(DbName) ->
   list_to_atom(DbName++"_reader_sup").
 
 get_process_name(DbName, VNodeId) ->
-	adb_utils:get_vnode_process(format_name(DbName), VNodeId).
+	adb_utils:get_vnode_process(format_sup_name(DbName), VNodeId).
