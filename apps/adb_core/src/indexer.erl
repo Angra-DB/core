@@ -59,7 +59,7 @@ start_link(DbName, VNodeId) ->
 
 start_link(DbName, VNodeId, Args) ->
   IndexMaxSize = proplists:get_value(max_index_size, Args),
-  gen_server:start_link({local, get_process_name(DbName, VNodeId)}, ?MODULE, [DbName, IndexMaxSize], []).
+  gen_server:start_link({local, get_process_name(DbName, VNodeId)}, ?MODULE, [DbName, IndexMaxSize, VNodeId], []).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -76,10 +76,10 @@ start_link(DbName, VNodeId, Args) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([DbName, IndexMaxSize]) ->
+init([DbName, IndexMaxSize, VNodeId]) ->
   adbindexer:start_table(DbName),
   adbindexer:start_deletion_table(DbName),
-  {ok, Pid} = reader_sup:start_child(DbName),
+  {ok, Pid} = reader_sup:start_child(DbName, VNodeId),
   {ok, #state{ db_name =  DbName, index = start_index(Pid, DbName), index_max_size = IndexMaxSize }}.
 
 %%--------------------------------------------------------------------

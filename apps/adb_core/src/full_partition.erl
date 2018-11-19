@@ -28,9 +28,9 @@ connect(Database) ->
         {error, Reason}     -> {error, Reason}
     end.
 
-save(Database, Key, Doc) ->
+save(Database, Key, {Size, Doc}) ->
     Targets = [node()|nodes()],
-    Request = {process_request, {all, {save_key, Database, {Key, Doc}}}},
+    Request = {process_request, {all, {save_key, Database, {Key, Size, Doc}}}},
     ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
     case gen_partition:validate_response(ResponseStats, length(Targets), read) of
         {success, Response} -> {ok, Response};
@@ -48,9 +48,9 @@ lookup(Database, Key) ->
         {error, Reason}     -> {error, Reason}
     end.
 
-update(Database, Key, Doc) ->
+update(Database, Key, {Size, Doc}) ->
     Targets = [node()|nodes()],
-    Request = {process_request, {all, {update, Database, {Key, Doc}}}},
+    Request = {process_request, {all, {update, Database, {Key, Size, Doc}}}},
     ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
     case gen_partition:validate_response(ResponseStats, length(Targets), read) of
         {success, Response} -> {ok, Response};

@@ -128,28 +128,28 @@ forward_request(create_db, Database, Child) ->
     Child:create_db(Database);
 forward_request(connect, Database, Child) ->
     Child:connect(Database);
-forward_request(save, {Database, Doc}, {Child, HashFunc}) ->
+forward_request(save, {Database, {Size, Doc}}, {Child, HashFunc}) ->
     %% This command will be converted to a 'save_key' command, generating here
     %% a key for the document.
     Key = adb_utils:gen_key(),
-    forward_request(save_key, {Database, {Key, Doc}}, {Child, HashFunc});
-forward_request(save, {Database, Doc}, Child) ->
+    forward_request(save_key, {Database, {Key, Size, Doc}}, {Child, HashFunc});
+forward_request(save, {Database, {Size, Doc}}, Child) ->
     %% This command will be converted to a 'save_key' command, generating here
     %% a key for the document.
     Key = adb_utils:gen_key(),
-    forward_request(save_key, {Database, {Key, Doc}}, Child);
-forward_request(save_key, {Database, {Key, Doc}}, {Child, HashFunc}) ->
-    Child:save(Database, {Key, HashFunc}, Doc);
-forward_request(save_key, {Database, {Key, Doc}}, Child) ->
-    Child:save(Database, Key, Doc);
+    forward_request(save_key, {Database, {Key, Size, Doc}}, Child);
+forward_request(save_key, {Database, {Key, Size, Doc}}, {Child, HashFunc}) ->
+    Child:save(Database, {Key, HashFunc}, {Size, Doc});
+forward_request(save_key, {Database, {Key, Size, Doc}}, Child) ->
+    Child:save(Database, Key, {Size, Doc});
 forward_request(lookup, {Database, Key}, {Child, HashFunc}) ->
     Child:lookup(Database, {Key, HashFunc});
 forward_request(lookup, {Database, Key}, Child) ->
     Child:lookup(Database, Key);
-forward_request(update, {Database, {Key, Doc}}, {Child, HashFunc}) ->
-    Child:update(Database, {Key, HashFunc}, Doc);
-forward_request(update, {Database, {Key, Doc}}, Child) ->
-    Child:update(Database, Key, Doc);
+forward_request(update, {Database, {Key, Size, Doc}}, {Child, HashFunc}) ->
+    Child:update(Database, {Key, HashFunc}, {Size, Doc});
+forward_request(update, {Database, {Key, Size, Doc}}, Child) ->
+    Child:update(Database, Key, {Size, Doc});
 forward_request(delete, {Database, Key}, {Child, HashFunc}) ->
     Child:delete(Database, {Key, HashFunc});
 forward_request(delete, {Database, Key}, Child) ->

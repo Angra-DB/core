@@ -69,7 +69,7 @@ collect_responses(LastIndex, Request) ->
 
 collect_responses(0, _Request, Responses) -> Responses;
 collect_responses(Index, Request, Responses) ->
-    {ok, Target} = adb_utils:get_vnode_name(Index),
+    Target = adb_utils:get_vnode_name(Index),
     Response = gen_server:call(Target, Request),
     collect_responses(Index-1, Request, [Response|Responses]).
 

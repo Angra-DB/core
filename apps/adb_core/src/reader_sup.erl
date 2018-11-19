@@ -34,7 +34,7 @@ start_child(DbName, VNodeId) ->
 %% @end
 %%--------------------------------------------------------------------
 start_link(DbName, VNodeId) ->
-  supervisor:start_link({local, get_process_name(DbName, VNodeId)}, ?MODULE, [DbName, VNodeId]).
+  supervisor:start_link({local, get_process_name(DbName, VNodeId)}, ?MODULE, [DbName]).
 
 %%%===================================================================
 %%% Supervisor callbacks
