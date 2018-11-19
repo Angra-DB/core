@@ -29,8 +29,8 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
-start_link(DbName, Args) ->
-  supervisor:start_link({local, list_to_atom(DbName)}, ?MODULE, [DbName, Args]).
+start_link(DbName, VNodeId) ->
+  supervisor:start_link({local, adb_utils:get_vnode_process(DbName, VNodeId)}, ?MODULE, [DbName, VNodeId]).
 
 %%%===================================================================
 %%% Supervisor callbacks
@@ -46,7 +46,7 @@ start_link(DbName, Args) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
-init([DbName, Args]) ->
+init([DbName, VNodeId]) ->
   RestartStrategy = one_for_one,
   MaxRestarts = 1000,
   MaxSecondsBetweenRestarts = 3600,
@@ -59,13 +59,13 @@ init([DbName, Args]) ->
 
   lager:info("DbName = ~p", [DbName]),
 
-  ReaderChild = {DbName++"_reader", {reader_sup, start_link, [DbName]},
+  ReaderChild = {DbName++"_reader", {reader_sup, start_link, [DbName, VNodeId]},
     Restart, Shutdown, Type, [reader_sup]},
-  WriterChild = {DbName++"_writer", {writer_sup, start_link, [DbName, Args]},
+  WriterChild = {DbName++"_writer", {writer_sup, start_link, [DbName, VNodeId]},
     Restart, Shutdown, Type, [writer_sup]},
-  ManagementChild = {DbName++"_man", {man_sup, start_link, [DbName]},
+  ManagementChild = {DbName++"_man", {man_sup, start_link, [DbName, VNodeId]},
     Restart, Shutdown, Type, [man_sup]},
-  QueryChild = {DbName++"_query", {query_sup, start_link, [DbName]},
+  QueryChild = {DbName++"_query", {query_sup, start_link, [DbName, VNodeId]},
     Restart, Shutdown, Type, [query_sup]},
 
   lager:info("Initializing database ~p", [DbName]),

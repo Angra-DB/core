@@ -29,22 +29,22 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {db_name}).
+-record(state, {db_name, vnode_id}).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
 
-create_db(DbName) ->
-  gen_server:call(format_name(DbName), {create_db}).
-connect(DbName) ->
-  gen_server:call(format_name(DbName), {connect}).
-save(DbName, Value, Key) ->
-  gen_server:call(format_name(DbName), {save, {Value, Key}}, 60000).
-update(DbName, Value, Key) ->
-  gen_server:call(format_name(DbName), {update, {Value, Key}}).
-delete(DbName, Key) ->
-  gen_server:call(format_name(DbName), {delete, {Key}}).
+create_db(DbName, VNodeId) ->
+  gen_server:call(get_process_name(DbName, VNodeId), {create_db}).
+connect(DbName, VNodeId) ->
+  gen_server:call(get_process_name(DbName, VNodeId), {connect}).
+save(DbName, Value, Key, VNodeId) ->
+  gen_server:call(get_process_name(DbName, VNodeId), {save, {Value, Key}}, 60000).
+update(DbName, Value, Key, VNodeId) ->
+  gen_server:call(get_process_name(DbName, VNodeId), {update, {Value, Key}}).
+delete(DbName, Key, VNodeId) ->
+  gen_server:call(get_process_name(DbName, VNodeId), {delete, {Key}}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -52,8 +52,8 @@ delete(DbName, Key) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
-start_link(DbName) ->
-  gen_server:start_link({local, format_name(DbName)}, ?MODULE, [DbName], []).
+start_link(DbName, VNodeId) ->
+  gen_server:start_link({local, get_process_name(DbName, VNodeId)}, ?MODULE, [DbName, VNodeId], []).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -70,8 +70,8 @@ start_link(DbName) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([DbName]) ->
-  {ok, #state{db_name = DbName}}.
+init([DbName, VNodeId]) ->
+  {ok, #state{db_name = DbName, vnode_id = VNodeId}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -80,7 +80,7 @@ init([DbName]) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
-handle_call(Request, _From, State = #state {db_name = DbName}) ->
+handle_call(Request, _From, State = #state {db_name = DbName, vnode_id = VNodeId}) ->
   case Request of
     {create_db} ->
       Reply = adbtree:create_db(DbName);
@@ -90,7 +90,7 @@ handle_call(Request, _From, State = #state {db_name = DbName}) ->
       Reply =
         case adbtree:save(DbName, Value, Key) of
           {ok, {key, NewKey}, {ver, Version}} ->
-            indexer:save(DbName, Value, NewKey, Version),
+            indexer:save(DbName, Value, NewKey, Version, VNodeId),
             {ok, {key, NewKey}, {ver, Version}};
           Else ->
             Else
@@ -98,10 +98,10 @@ handle_call(Request, _From, State = #state {db_name = DbName}) ->
     {update, {Value, Key}} ->
       Reply = adbtree:update(DbName, Value, Key),
       {ok, NewVersion} = Reply,
-      indexer:update(DbName, Value, Key, NewVersion);
+      indexer:update(DbName, Value, Key, NewVersion, VNodeId);
     {delete, {Key}} ->
       Reply = adbtree:delete(DbName, Key),
-      indexer:delete(DbName, Key)
+      indexer:delete(DbName, Key, VNodeId)
   end,
   {reply, Reply, State}.
 
@@ -159,3 +159,6 @@ code_change(_OldVsn, State, _Extra) ->
 
 format_name(DbName) ->
   list_to_atom(DbName++"_writer").
+
+get_process_name(DbName, VNodeId) ->
+	adb_utils:get_vnode_process(format_name(DbName), VNodeId).

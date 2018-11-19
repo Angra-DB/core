@@ -25,13 +25,13 @@ start_child() ->
 
 init(Args) ->
     {ok, Persistence} = setup_persistence(Args),
-    {ok, PersistNames} = get_vnode_names(),
-    Cores = [#{id       => Name, 
-               start    => {adb_persistence, start_link, [Persistence, Name]},
-               restart  => permanent, 
-               shutdown => brutal_kill, 
-               type     => worker, 
-               modules  => [adb_persistence]} || Name <- PersistNames],
+	 {ok, VNodes} = adb_dist_store:get_config(vnodes),
+    PersistSups = [#{id       => adb_utils:get_vnode_process(persist_sup, Id, VNodes), 
+						   start    => {persist_sup, start_link, [Persistence, Id]}, 
+						   restart  => permanent, 
+						   shutdown => infinity, 
+						   type     => supervisor, 
+						   modules  => [persist_sup]}, || Id <- lists:seq(1, VNodes)],
     VNodeServer = #{id       => adb_vnode_server,
                     start    => {adb_vnode_server, start_link, []},
                     restart  => permanent,
@@ -55,11 +55,4 @@ setup_persistence(Args) ->
 	_       -> lager:info("Starting ADBTree..."),
 		       {ok, adbtree_persistence}
     end.
-    
-get_vnode_names() ->
-    {ok, VNodes} = adb_dist_store:get_config(vnodes),
-    Names = lists:map(fun(Id) -> 
-        {ok, Name} = adb_utils:get_vnode_name(Id, VNodes), 
-        Name 
-    end, lists:seq(1, VNodes)),
-    {ok, Names}.
+   

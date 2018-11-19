@@ -29,8 +29,8 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
-start_link(DbName, Args) ->
-  supervisor:start_link({local, list_to_atom(DbName++"_writer_sup")}, ?MODULE, [DbName, Args]).
+start_link(DbName, VNodeId) ->
+  supervisor:start_link({local, adb_utils:get_vnode_process(DbName++"_writer_sup", VNodeId)}, ?MODULE, [DbName, VNodeId]).
 
 %%%===================================================================
 %%% Supervisor callbacks
@@ -46,7 +46,7 @@ start_link(DbName, Args) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
-init([DbName, Args]) ->
+init([DbName, VNodeId]) ->
   RestartStrategy = one_for_one,
   MaxRestarts = 1000,
   MaxSecondsBetweenRestarts = 3600,
@@ -57,9 +57,9 @@ init([DbName, Args]) ->
   Shutdown = 2000,
   Type = worker,
 
-  WriterWorker = {DbName++"writer", {writer, start_link, [DbName]},
+  WriterWorker = {DbName++"writer", {writer, start_link, [DbName, VNodeId]},
     Restart, Shutdown, Type, [writer]},
-  IndexerWorker = {DbName++"indexer", {indexer, start_link, [DbName, Args]},
+  IndexerWorker = {DbName++"indexer", {indexer, start_link, [DbName, VNodeId]},
     Restart, Shutdown, Type, [indexer]},
 
   {ok, {SupFlags, [WriterWorker, IndexerWorker]}}.

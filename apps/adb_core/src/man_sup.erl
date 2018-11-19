@@ -29,8 +29,8 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
-start_link(DbName) ->
-  supervisor:start_link({local, list_to_atom(DbName++"_man_sup")}, ?MODULE, [DbName]).
+start_link(DbName, VNodeId) ->
+  supervisor:start_link({local, get_process_name(DbName, VNodeId)}, ?MODULE, [DbName]).
 
 %%%===================================================================
 %%% Supervisor callbacks
@@ -68,3 +68,9 @@ init([DbName]) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+format_name(DbName) ->
+  list_to_atom(DbName++"_man_sup").
+
+get_process_name(DbName, VNodeId) ->
+	adb_utils:get_vnode_process(format_name(DbName), VNodeId).

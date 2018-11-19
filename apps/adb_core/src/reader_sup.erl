@@ -24,8 +24,8 @@
 %%% API functions
 %%%===================================================================
 
-start_child(DbName) ->
-  supervisor:start_child(format_sup_name(DbName), []).
+start_child(DbName, VNodeId) ->
+  supervisor:start_child(get_process_name(DbName, VNodeId), []).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -33,8 +33,8 @@ start_child(DbName) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
-start_link(DbName) ->
-  supervisor:start_link({local, format_sup_name(DbName)}, ?MODULE, [DbName]).
+start_link(DbName, VNodeId) ->
+  supervisor:start_link({local, get_process_name(DbName, VNodeId)}, ?MODULE, [DbName, VNodeId]).
 
 %%%===================================================================
 %%% Supervisor callbacks
@@ -72,3 +72,6 @@ init([DbName]) ->
 
 format_sup_name(DbName) ->
   list_to_atom(DbName++"_reader_sup").
+
+get_process_name(DbName, VNodeId) ->
+	adb_utils:get_vnode_process(format_name(DbName), VNodeId).

@@ -25,7 +25,7 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {db_name}).
+-record(state, {db_name, v_node_id}).
 
 %%%===================================================================
 %%% API

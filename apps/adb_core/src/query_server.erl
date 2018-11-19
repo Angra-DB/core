@@ -24,7 +24,7 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {dbName}).
+-record(state, {dbName, vnode_id}).
 
 %%%===================================================================
 %%% API
@@ -36,11 +36,11 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
-start_link(DbName) ->
-  gen_server:start_link({local, format_name(DbName)}, ?MODULE, [DbName], []).
+start_link(DbName, VNodeId) ->
+  gen_server:start_link({local, get_process_name(DbName, VNodeId)}, ?MODULE, [DbName, VNodeId], []).
 
-process_query(DbName, Query) ->
-  gen_server:call(format_name(DbName), {query, Query}).
+process_query(DbName, Query, VNodeId) ->
+  gen_server:call(get_process_name(DbName, VNodeId), {query, Query}).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -57,8 +57,8 @@ process_query(DbName, Query) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([DbName]) ->
-  {ok, #state{dbName = DbName}}.
+init([DbName, VNodeId]) ->
+  {ok, #state{dbName = DbName, vnode_id = VNodeId}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -67,10 +67,10 @@ init([DbName]) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
-handle_call(Request, _From, State = #state{dbName = DbName}) ->
+handle_call(Request, _From, State = #state{dbName = DbName, vnode_id = VNodeId}) ->
   case Request of
     {query, Query} ->
-      Response = query_processor:process_query(Query, DbName)
+      Response = query_processor:process_query(Query, DbName, VNodeId)
   end,
   {reply, Response, State}.
 
@@ -129,3 +129,6 @@ code_change(_OldVsn, State, _Extra) ->
 
 format_name(DbName) ->
   list_to_atom(DbName++"_query").
+
+get_process_name(DbName, VNodeId) ->
+	adb_utils:get_vnode_process(format_name(DbName), VNodeId).

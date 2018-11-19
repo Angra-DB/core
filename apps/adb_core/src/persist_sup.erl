@@ -25,10 +25,11 @@
 %%% API functions
 %%%===================================================================
 
-spawn_if_exists(DbName, Args) ->
+spawn_if_exists(DbName, VNodeId) ->
+	SupName = adb_utils:get_vnode_process(?MODULE, VNodeId)
   case adbtree:exists(DbName) of
     true ->
-      case supervisor:start_child(?SERVER, children_spec(DbName, Args)) of
+      case supervisor:start_child(SupName, children_spec(DbName, VNodeId)) of
         {error, already_present} -> ok;
         {error, {already_started, _}} -> ok;
         {ok, _} -> ok;
@@ -39,22 +40,24 @@ spawn_if_exists(DbName, Args) ->
       db_does_not_exist
   end.
 
-start_child(DbName, Args) ->
-  supervisor:start_child(?SERVER, children_spec(DbName, Args)).
+start_child(DbName, VNodeId) ->
+	SupName = adb_utils:get_vnode_process(?MODULE, VNodeId)
+  supervisor:start_child(SupName, children_spec(DbName)).
 
-children_spec(DbName, Args) ->
+children_spec(DbName, VNodeId) ->
   Restart = permanent,
   Shutdown = 2000,
   Type = supervisor,
 
-  {DbName, {database_sup, start_link, [DbName, Args]},
+  {DbName, {database_sup, start_link, [DbName, VNodeId]},
     Restart, Shutdown, Type, [database_sup]}.
 
 %%--------------------------------------------------------------------
 %% Starts the supervisor
 %%--------------------------------------------------------------------
-start_link() ->
-  supervisor:start_link({local, ?SERVER}, ?MODULE, []).
+start_link(Persistence, Id) ->
+  SupName = adb_utils:get_vnode_process(?MODULE, Id),
+  supervisor:start_link({local, SupName}, ?MODULE, [Persistence, Id]).
 
 %%%===================================================================
 %%% Supervisor callbacks
@@ -66,14 +69,18 @@ start_link() ->
 %% restart strategy, maximum restart frequency and child
 %% specifications.
 %%--------------------------------------------------------------------
-init([]) ->
+init([Persistence, Id]) ->
   RestartStrategy = one_for_one,
   MaxRestarts = 1000,
   MaxSecondsBetweenRestarts = 3600,
-
+  PersistServer = #{id       => adb_utils:get_vnode_process(adb_persistence, Id), 
+						  start    => {adb_persistence, start_link, [Persistence, Id]},
+						  restart  => permanent, 
+						  shutdown => brutal_kill, 
+						  type     => worker, 
+						  modules  => [adb_persistence]},
   SupFlags = {RestartStrategy, MaxRestarts, MaxSecondsBetweenRestarts},
-
-  {ok, {SupFlags, []}}.
+  {ok, {SupFlags, [PersistServer]}}.
 
 %%%===================================================================
 %%% Internal functions

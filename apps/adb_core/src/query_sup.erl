@@ -29,8 +29,8 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
-start_link(DbName) ->
-  supervisor:start_link({local, format_name(DbName)}, ?MODULE, [DbName]).
+start_link(DbName, VNodeId) ->
+  supervisor:start_link({local, adb_utils:get_vnode_process(format_name(DbName), VNodeId)}, ?MODULE, [DbName, VNodeId]).
 
 %%%===================================================================
 %%% Supervisor callbacks
@@ -46,7 +46,7 @@ start_link(DbName) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
-init([DbName]) ->
+init([DbName, VNodeId]) ->
   RestartStrategy = one_for_one,
   MaxRestarts = 1000,
   MaxSecondsBetweenRestarts = 3600,
@@ -57,9 +57,7 @@ init([DbName]) ->
   Shutdown = 2000,
   Type = worker,
 
-  lager:info("DbName = ~p", [DbName]),
-
-  AChild = {query_server, {query_server, start_link, [DbName]},
+  AChild = {query_server, {query_server, start_link, [DbName, VNodeId]},
     Restart, Shutdown, Type, [query_server]},
 
   {ok, {SupFlags, [AChild]}}.

@@ -14,17 +14,17 @@
 %% API
 -compile(export_all).
 
-process_query(Query, DbName) ->
+process_query(Query, DbName, VNodeId) ->
   Statements = get_lines(Query),
   process_query(Statements, [], DbName).
 
-process_query([], CurrentResult, _) ->
+process_query([], CurrentResult, _, _) ->
   CurrentResult;
 
-process_query([S | Statements], CurrentResult, DbName) ->
+process_query([S | Statements], CurrentResult, DbName, VNodeId) ->
   {Command, Args} = parse_statement(S),
   lager:info("Command = ~p, Args = ~p, CurrentResult = ~p", [Command, Args, CurrentResult]),
-  process_command(list_to_atom(Command), Args, CurrentResult, DbName, Statements).
+  process_command(list_to_atom(Command), Args, CurrentResult, DbName, Statements, VNodeId).
 
 parse_statement(Line) ->
   [Command | Args] = split(Line, " "),
@@ -33,42 +33,42 @@ parse_statement(Line) ->
 
 %% All process command functions should return a list of query_results
 
-process_command('and', _Args, CurrentResult, DbName, Statements) ->
-  RestResult = process_query(Statements, [], DbName),
+process_command('and', _Args, CurrentResult, DbName, Statements, VNodeId) ->
+  RestResult = process_query(Statements, [], DbName, VNodeId),
   intersect(RestResult, CurrentResult);
 
-process_command('or', _Args, CurrentResult, DbName, Statements) ->
-  RestResult = process_query(Statements, [], DbName),
+process_command('or', _Args, CurrentResult, DbName, Statements, VNodeId) ->
+  RestResult = process_query(Statements, [], DbName, VNodeId),
   join(RestResult, CurrentResult);
 
-process_command(filter_field, FieldNames, CurrentResult, DbName, Statements) ->
-  FieldResult = process_field(FieldNames, DbName),
+process_command(filter_field, FieldNames, CurrentResult, DbName, Statements, VNodeId) ->
+  FieldResult = process_field(FieldNames, DbName, VNodeId),
   NewResult = case CurrentResult of
     [] -> filter_expression(FieldResult, none, fun is_in_interval/2, fun(I) -> I end);
     _ -> filter_expression(FieldResult, CurrentResult, fun is_in_interval/2, fun(I) -> I end)
   end,
-  process_query(Statements, NewResult, DbName);
+  process_query(Statements, NewResult, DbName, VNodeId);
 
-process_command(filter, Words, _, DbName, Statements) ->
-  NewResult = process_expression(Words, DbName),
-  process_query(Statements, NewResult, DbName).
+process_command(filter, Words, _, DbName, Statements, VNodeId) ->
+  NewResult = process_expression(Words, DbName, VNodeId),
+  process_query(Statements, NewResult, DbName, VNodeId).
 
-process_expression([W | Words], DbName) ->
-  CurrentExpressionResult = parse_query_term(W, DbName),
+process_expression([W | Words], DbName, VNodeId) ->
+  CurrentExpressionResult = parse_query_term(W, DbName, VNodeId),
   MapFunction = fun(I = #doc_interval{ startPos = Start }) -> I#doc_interval{startPos = Start-1} end,
   case Words of
     [] -> filter_expression(group_by(fun adbindexer:extract_key_from_record/1, CurrentExpressionResult), none, fun is_sequence/2, MapFunction);
     _ ->
-      TailExpressionResult = process_expression(Words, DbName),
+      TailExpressionResult = process_expression(Words, DbName, VNodeId),
       filter_expression(group_by(fun adbindexer:extract_key_from_record/1, CurrentExpressionResult), TailExpressionResult, fun is_sequence/2, MapFunction)
   end.
 
-process_field([F | FieldNames], DbName) ->
-  CurrentFieldResult = lists:map(fun convert_to_posting/1, indexer:query_term(DbName, F)),
+process_field([F | FieldNames], DbName, VNodeId) ->
+  CurrentFieldResult = lists:map(fun convert_to_posting/1, indexer:query_term(DbName, F, VNodeId)),
   case FieldNames of
     [] -> filter_expression(group_by(fun adbindexer:extract_key_from_record/1, CurrentFieldResult), none, fun is_in_interval/2, fun(I) -> I end);
     _ ->
-      InnerFieldResult = process_field(FieldNames, DbName),
+      InnerFieldResult = process_field(FieldNames, DbName, VNodeId),
       filter_expression(group_by(fun adbindexer:extract_key_from_record/1, CurrentFieldResult), InnerFieldResult, fun is_in_interval/2, fun(I) -> I end)
   end.
 
@@ -174,8 +174,8 @@ convert_to_posting(posting_ext, PropList) ->
 
 group_by(F, L) -> lists:sort(fun compare_groups/2, dict:to_list(lists:foldr(fun({K,V}, D) -> dict:append(K, V, D) end , dict:new(), [ {F(X), X} || X <- L ]))).
 
-parse_query_term(Word, DbName) ->
-  lists:map(fun convert_to_posting/1, indexer:query_term(DbName, Word)).
+parse_query_term(Word, DbName, VNodeId) ->
+  lists:map(fun convert_to_posting/1, indexer:query_term(DbName, Word, VNodeId)).
 
 convert_to_result(#posting{docPos = DocPos}) ->
   #doc_interval{ startPos = DocPos, endPos = DocPos };

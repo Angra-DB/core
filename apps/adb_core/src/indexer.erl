@@ -35,17 +35,17 @@
 %%% API
 %%%===================================================================
 
-save(DbName, Value, Key, Version) ->
-  gen_server:call(format_name(DbName), {save, {Value, Key, Version}}, 60000).
+save(DbName, Value, Key, Version, VNodeId) ->
+  gen_server:call(get_process_name(DbName, VNodeId), {save, {Value, Key, Version}}, 60000).
 
-update(DbName, Value, Key, Version) ->
-  gen_server:call(format_name(DbName), {update, {Value, Key, Version}}).
+update(DbName, Value, Key, Version, VNodeId) ->
+  gen_server:call(get_process_name(DbName, VNodeId), {update, {Value, Key, Version}}).
 
-delete(DbName, Key) ->
-  gen_server:call(format_name(DbName), {delete, {Key}}).
+delete(DbName, Key, VNodeId) ->
+  gen_server:call(get_process_name(DbName, VNodeId), {delete, {Key}}).
 
-query_term(DbName, Term) ->
-  Name = format_name(DbName),
+query_term(DbName, Term, VNodeId) ->
+  Name = get_process_name(DbName, VNodeId),
   CallResult = gen_server:call(Name, {query, Term}),
   CallResult.
 %%--------------------------------------------------------------------
@@ -54,12 +54,12 @@ query_term(DbName, Term) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
-start_link(DbName) ->
-  start_link(DbName, []).
+start_link(DbName, VNodeId) ->
+  start_link(DbName, VNodeId, []).
 
-start_link(DbName, Args) ->
+start_link(DbName, VNodeId, Args) ->
   IndexMaxSize = proplists:get_value(max_index_size, Args),
-  gen_server:start_link({local, format_name(DbName)}, ?MODULE, [DbName, IndexMaxSize], []).
+  gen_server:start_link({local, get_process_name(DbName, VNodeId)}, ?MODULE, [DbName, IndexMaxSize], []).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -212,3 +212,5 @@ start_index(Pid, [K | Keys], Index, DbName) ->
       start_index(Pid, Keys, Index, DbName)
   end.
 
+get_process_name(DbName, VNodeId) ->
+	adb_utils:get_vnode_process(format_name(DbName), VNodeId).

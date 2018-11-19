@@ -2,28 +2,28 @@
 
 -behaviour(gen_persistence).
 
--export([setup/1, teardown/1, createDB/2, connect/2, save/3, lookup/2, update/3, delete/2, query_term/2, query/2, bulk_lookup/2]).
+-export([setup/1, teardown/1, createDB/2, connect/2, save/4, lookup/3, update/4, delete/3, query_term/3, query/3, bulk_lookup/3]).
 
 setup([DbName]) ->
     {ok, Tree} = adbtree:start(DbName),
     Tree.
 
-connect(DbName, Args) ->
-    persist_sup:spawn_if_exists(DbName, Args).
+connect(DbName, VNodeId) ->
+    persist_sup:spawn_if_exists(DbName, VNodeId).
 
-createDB(DbName, Args) ->
-    {ok, _} = persist_sup:start_child(DbName, Args),
-    writer:create_db(DbName).
+createDB(DbName, VNodeId) ->
+    {ok, _} = persist_sup:start_child(DbName, VNodeId),
+    writer:create_db(DbName, VNodeId).
 
 teardown(_) ->
     ok.
 
-save(DbName, Key, Value) ->
-    {ok, {key, NewKey}, {ver, _Version}} = writer:save(atom_to_list(DbName), list_to_binary(Value), list_to_integer(Key, 16)),
+save(DbName, Key, Value, VNodeId) ->
+    {ok, {key, NewKey}, {ver, _Version}} = writer:save(atom_to_list(DbName), list_to_binary(Value), list_to_integer(Key, 16), VNodeId),
     integer_to_list(NewKey, 16).
 
-lookup(DbName, Key) ->
-    {ok, Pid} = reader_sup:start_child(atom_to_list(DbName)),
+lookup(DbName, Key, VNodeId) ->
+    {ok, Pid} = reader_sup:start_child(atom_to_list(DbName), VNodeId),
     case reader:lookup(Pid, list_to_integer(Key, 16)) of
         {ok, _Version, Doc} ->
             {ok, Doc};
@@ -31,31 +31,31 @@ lookup(DbName, Key) ->
             Response
     end.
 
-bulk_lookup(DbName, Keys) ->
-    {ok, Pid} = reader_sup:start_child(atom_to_list(DbName)),
-    {ok, bulk_lookup_(Pid, Keys)}.
+bulk_lookup(DbName, Keys, VNodeId) ->
+    {ok, Pid} = reader_sup:start_child(atom_to_list(DbName), VNodeId),
+    {ok, bulk_lookup_(Pid, Keys, VNodeId)}.
 
-bulk_lookup_(_, []) ->
+bulk_lookup_(_, [], _) ->
     [];
 
-bulk_lookup_(ReaderPid, [K | Keys]) ->
+bulk_lookup_(ReaderPid, [K | Keys], VNodeId) ->
     case reader:lookup(ReaderPid, list_to_integer(K, 16)) of
         {ok, _Version, Doc} ->
-            [Doc | bulk_lookup_(ReaderPid, Keys)];
+            [Doc | bulk_lookup_(ReaderPid, Keys, VNodeId)];
         not_found ->
             lager:info("Key not found: ~p", [K]),
-            bulk_lookup_(ReaderPid, Keys)
+            bulk_lookup_(ReaderPid, Keys, VNodeId)
     end.
 
-delete(DbName, Key) ->
-    writer:delete(atom_to_list(DbName), list_to_integer(Key, 16)).
+delete(DbName, Key, VNodeId) ->
+    writer:delete(atom_to_list(DbName), list_to_integer(Key, 16), VNodeId).
 
-update(DbName, Key, Value) ->
-    writer:update(atom_to_list(DbName), list_to_binary(Value), list_to_integer(Key, 16)).
+update(DbName, Key, Value, VNodeId) ->
+    writer:update(atom_to_list(DbName), list_to_binary(Value), list_to_integer(Key, 16), VNodeId).
 
-query_term(DbName, Term) ->
-    indexer:query_term(atom_to_list(DbName), Term).
+query_term(DbName, Term, VNodeId) ->
+    indexer:query_term(atom_to_list(DbName), Term, VNodeId).
 
-query(DbName, Query) ->
-  query_server:process_query(atom_to_list(DbName), Query).
+query(DbName, Query, VNodeId) ->
+  query_server:process_query(atom_to_list(DbName), Query, VNodeId).
 

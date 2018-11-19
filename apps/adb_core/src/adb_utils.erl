@@ -1,6 +1,6 @@
 -module(adb_utils).
 
--export([get_env/1, get_env/2, gen_key/0, gen_name/0, choose_randomly/1, unique_list/1, get_vnode_name/1, get_vnode_name/2, get_database_name/2, sort_ring_info/1]).
+-export([get_env/1, get_env/2, gen_key/0, gen_name/0, choose_randomly/1, unique_list/1, get_vnode_name/1, get_vnode_process/2, get_database_name/2, sort_ring_info/1]).
 
 get_env(EnvVar) ->
     case os:getenv(EnvVar, none) of
@@ -40,13 +40,16 @@ unique_list(List) ->
 
 get_vnode_name(Id) ->
     {ok, VNodes} = adb_dist_store:get_config(vnodes),
-    get_vnode_name(Id, VNodes).
+	 get_vnode_process(adb_persistence, Id, VNodes).
 
-get_vnode_name(_, 1) ->
-    {ok, adb_persistence};
-get_vnode_name(Id, VNodes) when VNodes > 1 ->
-    Name = string:concat("adb_persistence_", integer_to_list(Id)),
-    {ok, list_to_atom(Name)}.
+get_vnode_process(Module, Id) -> 
+	{ok, VNodes} = adb_dist_store:get_config(vnodes),
+	get_vnode_process(Module, Id, Vnodes).
+
+get_vnode_process(Module, _, 1) -> Module;
+get_vnode_process(Module, Id, Vnodes) when VNodes > 1 ->
+	Name = lists:concat([Module, "_", Id]),
+	list_to_atom(Name).
 
 get_database_name(Database, adb_persistence) -> Database;
 get_database_name(Database, VNodeName) when is_atom(VNodeName) ->
