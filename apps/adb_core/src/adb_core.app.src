@@ -8,7 +8,7 @@
         {'ADB_HOST', '127.0.0.1'}]},     %% Default hostname on which this node will be identified on dist mode.
  {mod, {adb_app, 
 		  [{persistence, adbtree},         %% {persistence, ets | hanoidb | adbtree}
-		   {max_index_size, 1000000}       %% Maximum size of the memory index in bytes
+		   {max_index_size, 1000000},      %% Maximum size of the memory index in bytes
          {distribution, dist},           %% {distribution, dist | mono}
          {partition, full},              %% {partition, full | {consistent, <hash_func>}}
          {replication, 3},               %% Number of copies
