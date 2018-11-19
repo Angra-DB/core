@@ -12,12 +12,12 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/1,
-  create_db/1,
-  connect/1,
-  save/3,
-  update/3,
-  delete/2]).
+-export([start_link/2,
+  create_db/2,
+  connect/2,
+  save/4,
+  update/4,
+  delete/3]).
 
 %% gen_server callbacks
 -export([init/1,

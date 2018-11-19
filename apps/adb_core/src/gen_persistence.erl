@@ -2,7 +2,7 @@
 
 -export([behaviour_info/1]).
 
--export([start/2, process_request/4]).
+-export([start/2, process_request/5]).
 
 behaviour_info(callbacks) ->
   [{setup, 1}, {teardown, 1}, {createDB, 2}, {connect, 2}, {save, 4}, {lookup, 3}, {update, 4}, {delete, 3}, {query_term, 3}, {query, 3}, {bulk_lookup, 3}].

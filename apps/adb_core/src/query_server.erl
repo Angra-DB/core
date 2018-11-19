@@ -12,7 +12,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/1, process_query/2]).
+-export([start_link/2, process_query/3]).
 
 %% gen_server callbacks
 -export([init/1,
