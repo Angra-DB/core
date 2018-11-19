@@ -40,7 +40,7 @@ lookup(Database, {Key, HashFunc}) ->
     Request = {process_request, {VNode, {lookup, Database, crypto:bytes_to_integer(HashKey)}}},
     lookup_call(Target, Request).
 
-update(Database, {Key, HashFunc}, DocInfo) ->
+update(Database, {Key, HashFunc}, {Size, Doc}) ->
     {ok, {HashKey, Target, VNode}} = map_key(HashFunc, Key),
     Request = {process_request, {VNode, {update, Database, {crypto:bytes_to_integer(HashKey), Size, Doc}}}},
     gen_server:call({adb_vnode_server, Target, replicate}, Request).
