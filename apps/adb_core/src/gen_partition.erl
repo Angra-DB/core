@@ -62,16 +62,20 @@
 %% Behavior callbacks
 %%=============================================================================
 
--callback create_db(database_name())                                -> child_response().
--callback connect(database_name())                                  -> child_response().
--callback save(database_name(), {key(), hash_func()}, document())   -> child_response();
-              (database_name(), key(), document())                  -> child_response().
--callback lookup(database_name(), {key(), hash_func()})             -> child_response();
-                (database_name(), key())                            -> child_response().
--callback update(database_name(), {key(), hash_func()}, document()) -> child_response();
-                (database_name(), key(), document())                -> child_response().
--callback delete(database_name(), {key(), hash_func()})             -> child_response();
-                (database_name(), key())                            -> child_response().
+-callback create_db(database_name())                                             -> child_response().
+-callback connect(database_name())                                               -> child_response().
+-callback save(database_name(), {key(), hash_func()}, {integer(), document()})   -> child_response();
+              (database_name(), key(), {integer(), document()})                  -> child_response().
+-callback lookup(database_name(), {key(), hash_func()})                          -> child_response();
+                (database_name(), key())                                         -> child_response().
+-callback bulk_lookup(database_name(), {[key()], hash_func()})                   -> child_response();
+                     (database_name(), [key()])                                  -> child_response().
+-callback update(database_name(), {key(), hash_func()}, {integer(), document()}) -> child_response();
+                (database_name(), key(), {integer(), document()})                -> child_response().
+-callback delete(database_name(), {key(), hash_func()})                          -> child_response();
+                (database_name(), key())                                         -> child_response().
+-callback query_term(database_name(), any())                                     -> child_response().
+-callback query(database_name(), any())                                          -> child_response().
 
 %%=============================================================================
 %% API functions
@@ -97,7 +101,7 @@ start(_Child, _Args) -> ok.
 %% @doc Forwards some operation to the chosen child to be executed.
 %% 
 %% @spec forward_request(Operation, Arguments, ChildSpec) -> Response
-%%       Operation = create_db | connect | save | save_key | lookup | update | delete
+%%       Operation = create_db | connect | save | save_key | lookup | bulk_lookup | update | delete | query_term | query
 %%       Arguments = DatabaseName | {DatabaseName, Key} | {DatabaseName, Document} | {DatabaseName, {Key, Document}}
 %%       Key = string(),
 %%       Document = string(),
@@ -112,20 +116,33 @@ start(_Child, _Args) -> ok.
 %% @returns The response of the operation.
 %%
 %% @end
--spec forward_request(create_db, database_name(), child_module())                     -> child_response();
+-spec forward_request(create_db, database_name(), {child_module(), hash_func()})      -> child_response();
+    (create_db, database_name(), child_module())                                      -> child_response();
+    (connect, database_name(), {child_module(), hash_func()})                         -> child_response();
     (connect, database_name(), child_module())                                        -> child_response();
-    (save, {database_name(), document()}, {child_module(), hash_func()})              -> child_response();
-    (save, {database_name(), document()}, child_module())                             -> child_response();
-    (save_key, {database_name(), {key(), document()}}, {child_module(), hash_func()}) -> child_response();
-    (save_key, {database_name(), {key(), document()}}, child_module())                -> child_response();
+    (save, {database_name(), integer(), document()}, {child_module(), hash_func()})              -> child_response();
+    (save, {database_name(), integer(), document()}, child_module())                             -> child_response();
+    (save_key, {database_name(), {key(), integer(), document()}}, {child_module(), hash_func()}) -> child_response();
+    (save_key, {database_name(), {key(), integer(), document()}}, child_module())                -> child_response();
     (lookup, {database_name(), key()}, {child_module(), hash_func()})                 -> child_response();
     (lookup, {database_name(), key()}, child_module())                                -> child_response();
-    (update, {database_name(), {key(), document()}}, {child_module(), hash_func()})   -> child_response();
-    (update, {database_name(), {key(), document()}}, child_module())                  -> child_response();
+    (bulk_lookup, {database_name(), [key()]}, {child_module(), hash_func()})          -> child_response();
+    (bulk_lookup, {database_name(), [key()]}, child_module())                         -> child_response();
+    (update, {database_name(), {key(), integer(), document()}}, {child_module(), hash_func()})   -> child_response();
+    (update, {database_name(), {key(), integer(), document()}}, child_module())                  -> child_response();
     (delete, {database_name(), key()}, {child_module(), hash_func()})                 -> child_response();
-    (delete, {database_name(), key()}, child_module())                                -> child_response().
+    (delete, {database_name(), key()}, child_module())                                -> child_response();
+    (query_term, {database_name(), any()}, {child_module(), hash_func()})             -> child_response();
+    (quary_term, {database_name(), any()}, child_module())                            -> child_response();
+    (query, {database_name(), any()}, {child_module(), hash_func()})                  -> child_response();
+    (quary, {database_name(), any()}, child_module())                                 -> child_response().
+
+forward_request(create_db, Database, {Child, _HashFunc}) ->
+    Child:create_db(Database);
 forward_request(create_db, Database, Child) ->
     Child:create_db(Database);
+forward_request(connect, Database, {Child, _HashFunc}) ->
+    Child:connect(Database);
 forward_request(connect, Database, Child) ->
     Child:connect(Database);
 forward_request(save, {Database, {Size, Doc}}, {Child, HashFunc}) ->
@@ -146,6 +163,10 @@ forward_request(lookup, {Database, Key}, {Child, HashFunc}) ->
     Child:lookup(Database, {Key, HashFunc});
 forward_request(lookup, {Database, Key}, Child) ->
     Child:lookup(Database, Key);
+forward_request(bulk_lookup, {Database, Keys}, {Child, HashFunc}) ->
+    Child:bulk_lookup(Database, {Keys, HashFunc});
+forward_request(bulk_lookup, {Database, Keys}, Child) ->
+    Child:bulk_lookup(Database, Keys);
 forward_request(update, {Database, {Key, Size, Doc}}, {Child, HashFunc}) ->
     Child:update(Database, {Key, HashFunc}, {Size, Doc});
 forward_request(update, {Database, {Key, Size, Doc}}, Child) ->
@@ -153,7 +174,15 @@ forward_request(update, {Database, {Key, Size, Doc}}, Child) ->
 forward_request(delete, {Database, Key}, {Child, HashFunc}) ->
     Child:delete(Database, {Key, HashFunc});
 forward_request(delete, {Database, Key}, Child) ->
-    Child:delete(Database, Key).
+    Child:delete(Database, Key);
+forward_request(query_term, {Database, Term}, {Child, _HashFunc}) ->
+    Child:query_term(Database, Term);
+forward_request(query_term, {Database, Term}, Child) ->
+    Child:query_term(Database, Term);
+forward_request(query, {Database, Query}, {Child, _HashFunc}) ->
+    Child:query(Database, Query);
+forward_request(query, {Database, Query}, Child) ->
+    Child:query(Database, Query).
 
 %% @doc Makes multiple calls to provided nodes.
 %%

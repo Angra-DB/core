@@ -152,8 +152,6 @@ diff([{Key, LStore}|Rest], RemoteStore, LocalChanges, RemoteChanges) ->
                   diff(Rest, RemoteStore, LocalChanges, NRemoteChanges);
         RStore -> {LStoreDiff, RStoreDiff} = store_diff(LStore, RStore),
                   NRemoteStore = proplists:delete(Key, RemoteStore),
-                  lager:warning("Local  > ~p;~n", [LStoreDiff]),
-                  lager:warning("Remote > ~p;~n", [RStoreDiff]),
                   NLocalChanges = case LStoreDiff of
                       []    -> LocalChanges;
                       LDiff -> lists:append(LocalChanges, [{Key, LDiff}])

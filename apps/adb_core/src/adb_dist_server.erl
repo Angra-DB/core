@@ -128,8 +128,8 @@ generate_new_ring_id(LastRingId) ->
 get_partition_module() ->
     {ok, Partition} = adb_dist_store:get_config(partition),
     case Partition of
-        {consistent, _} -> consistent_partition;
-        _Full           -> full_partition
+        {consistent, HashFunc} -> {consistent_partition, HashFunc};
+        _Full                  -> full_partition
     end.
 
 store_ring_id({Node, RingId}) ->
