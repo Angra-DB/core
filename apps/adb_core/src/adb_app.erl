@@ -94,7 +94,7 @@ configure_dist(_, _) ->
 
 start_node() ->
     {ok, Host} = adb_utils:get_env("ADB_HOST"),
-    TempName = list_to_atom("temp" ++ adb_utils:gen_name() ++ "@" ++ atom_to_list(Host)),
+    TempName = list_to_atom("temp" ++ adb_utils:gen_name() ++ "@" ++ Host),
     case node() of
         nonode@nohost -> net_kernel:start([TempName, longnames]),
                          TempName;
