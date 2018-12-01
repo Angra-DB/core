@@ -95,17 +95,24 @@ handle_call(Request, _From, State = #state {db_name = DbName, index = Index}) ->
       Reply = adbindexer:find(Term, Index, DbName, fun adbindexer:hash/1),
       NewIndex = Index;
     {save, {Value, Key, Version}} ->
-      io:format("Saving document: ~s~n", [Value]),
-      { ok, Tokens } = token_parser:receive_json(Value),
-      AddedIndex = adbindexer:update_mem_index(Tokens, Key, Version, Index, DbName),
-      Reply = ok,
-      NewIndex = flush_if_full(AddedIndex, State);
+      {Reply, NewIndex} = try token_parser:receive_json(Value) of
+        { ok, Tokens } ->
+              AddedIndex = adbindexer:update_mem_index(Tokens, Key, Version, Index, DbName),
+              {ok, flush_if_full(AddedIndex, State)}
+        catch
+          throw:Exception ->
+            {{error, Exception}, Index}
+        end;
     {update, {Value, Key, Version}} ->
-      { ok, Tokens } = token_parser:receive_json(Value),
-      lager:info("Saving document: ~p, with tokens ~p", [Value, Tokens]),
-      AddedIndex = adbindexer:update_mem_index(Tokens, Key, Version, Index, DbName),
-      Reply = ok,
-      NewIndex = flush_if_full(AddedIndex, State);
+      {Reply, NewIndex} = 
+        try token_parser:receive_json(Value) of
+          { ok, Tokens } ->
+              AddedIndex = adbindexer:update_mem_index(Tokens, Key, Version, Index, DbName),
+              {ok, flush_if_full(AddedIndex, State)}
+        catch
+          throw:Exception ->
+              {{error, Exception}, Index}
+        end;
     {delete, {Key}} ->
       adbindexer:add_deleted_doc(Key, DbName),
       Reply = ok,
@@ -167,8 +174,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 
 
+format_name(DbName) when is_atom(DbName) ->
+  list_to_atom(atom_to_list(DbName)++"_indexer");
+
 format_name(DbName) ->
-  list_to_atom(DbName++"_indexer").
+    list_to_atom(DbName++"_indexer").
 
 flush_if_full(AddedIndex, #state {db_name = DbName, index_max_size = MaxSize}) ->
 

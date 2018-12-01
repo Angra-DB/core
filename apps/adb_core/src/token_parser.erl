@@ -49,7 +49,10 @@ json_parser([{<<Header/binary>>, Content} | Tail], Count) ->
   ContentList = json_parser(Content, InitField),
   FinalHeaderTokens = lists:map(fun(Token) -> Token#token_ext{fieldEnd = InitField+length(ContentList)-1} end, HeaderTokenList),
   NextPos = InitField+length(ContentList),
-  lists:append([FinalHeaderTokens, ContentList, json_parser(Tail, NextPos)]).
+  lists:append([FinalHeaderTokens, ContentList, json_parser(Tail, NextPos)]);
+
+json_parser(_, _) ->
+  throw(invalid_json).
 
 
 tokenize_head_list([], _, _) ->

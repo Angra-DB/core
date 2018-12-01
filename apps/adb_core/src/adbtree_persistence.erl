@@ -19,8 +19,14 @@ teardown(_) ->
     ok.
 
 save(DbName, Key, Value, VNodeId) ->
-    {ok, {key, NewKey}, {ver, _Version}} = writer:save(atom_to_list(DbName), list_to_binary(Value), list_to_integer(Key, 16), VNodeId),
-    integer_to_list(NewKey, 16).
+    case writer:save(atom_to_list(DbName), list_to_binary(Value), list_to_integer(Key, 16), VNodeId) of
+        {ok, {key, NewKey}, {ver, _Version}} ->
+            integer_to_list(NewKey, 16);
+        Else ->
+            lager:info("~p", [Else]),
+            Else
+    end.
+    
 
 lookup(DbName, Key, VNodeId) ->
     {ok, Pid} = reader_sup:start_child(atom_to_list(DbName), VNodeId),
@@ -54,8 +60,12 @@ update(DbName, Key, Value, VNodeId) ->
     writer:update(atom_to_list(DbName), list_to_binary(Value), list_to_integer(Key, 16), VNodeId).
 
 query_term(DbName, Term, VNodeId) ->
-    indexer:query_term(atom_to_list(DbName), Term, VNodeId).
+    Response = indexer:query_term(DbName, Term, VNodeId),
+    lager:info("Reponse = ~p", [Response]),
+    Response.
 
 query(DbName, Query, VNodeId) ->
-  query_server:process_query(atom_to_list(DbName), Query, VNodeId).
+  Response = query_server:process_query(atom_to_list(DbName), Query, VNodeId),
+  lager:info("Reponse = ~p", [Response]),
+  Response.
 

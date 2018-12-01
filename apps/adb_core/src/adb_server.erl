@@ -90,7 +90,10 @@ handle_info({tcp, Socket, RawData}, State = #state{ waiting_request = true, body
 handle_info({tcp, Socket, RawData}, State) ->
     case preprocess_input(RawData) of
         {wait, Request} ->
-            {noreply, State#state{waiting_request = true, body = Request}};
+			{noreply, State#state{waiting_request = true, body = Request}};
+		E = {error, _} ->
+			send_response(Socket, "~p", [E]),
+			{noreply, State};
         Tokens ->
             NewState = process_request(Socket, State, Tokens),
             {noreply, NewState#state{ waiting_request = false }}
@@ -189,11 +192,14 @@ split_next_token(Str) ->
 
 get_doc_arguments(Args, Map) ->
 	Split = {Size, Doc} = split_next_token(Args),
-	case list_to_integer(Size) > length(Doc) of
+	try list_to_integer(Size) > length(Doc) of
 			true ->
 				{wait, Map(Split)};
 			false ->
 				Map(Split)
+	catch
+		_:badarg ->
+			{error, missing_request_size}
 	end.
 
 send_response(Socket, Format, Args) when is_list(Format) ->

@@ -90,15 +90,27 @@ handle_call(Request, _From, State = #state {db_name = DbName, vnode_id = VNodeId
       Reply =
         case adbtree:save(DbName, Value, Key) of
           {ok, {key, NewKey}, {ver, Version}} ->
-            indexer:save(DbName, Value, NewKey, Version, VNodeId),
-            {ok, {key, NewKey}, {ver, Version}};
+            case indexer:save(DbName, Value, NewKey, Version, VNodeId) of
+              ok ->
+                  {ok, {key, NewKey}, {ver, Version}};
+              Else ->
+                Else
+            end;
           Else ->
             Else
         end;
     {update, {Value, Key}} ->
-      Reply = adbtree:update(DbName, Value, Key),
-      {ok, NewVersion} = Reply,
-      indexer:update(DbName, Value, Key, NewVersion, VNodeId);
+      Reply = case adbtree:update(DbName, Value, Key) of
+        {ok, NewVersion} ->
+          case indexer:update(DbName, Value, Key, NewVersion, VNodeId) of
+            ok ->
+              {ok, NewVersion};
+            Else ->
+              Else
+          end;
+        Else ->
+          Else
+      end;
     {delete, {Key}} ->
       Reply = adbtree:delete(DbName, Key),
       indexer:delete(DbName, Key, VNodeId)
