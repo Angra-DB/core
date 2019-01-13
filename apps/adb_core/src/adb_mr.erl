@@ -130,7 +130,7 @@ handle_call({mr_task, Database, Modules = #taskModules{main = MainModule, depend
 					Modules = Task#managementTask.modules,					
 					ets:insert(?ManagerTasksTable, {TaskKey, Task}), 
 		            NewState = #nodeInfo{status = busy, database = Database, managementTask = TaskKey, workerTask = none, lastResult = none},
-		            {reply, {ok, "Task stated."}, NewState}
+		            {reply, {ok, TaskKey, "Task stated."}, NewState}
         	end;            
         busy ->
 			log("Node manager busy."),
@@ -278,6 +278,7 @@ get_document(Index, DocList, Settings) ->
 	%log(Index),
 	log("Worker -- DocList"),
 	log(DocList),
+	log(lists:nth(Index, DocList)),
 	{_, DocPos} = lists:nth(Index, DocList),
 	log("Worker -- DocPos"),
 	%log(DocPos),

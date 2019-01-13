@@ -12,7 +12,6 @@ init(_Args) ->
     ChildSpecs = [#{id => adb_mr,
                     start => {adb_mr, start, []},
                     restart => permanent,
-                    shutdown => brutal_kill,
                     type => worker,
                     modules => [adb_mr]}],
     {ok, {SupFlags, ChildSpecs}}.
