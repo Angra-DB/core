@@ -1,0 +1,56 @@
+-module(full_partition_SUITE).
+
+-export([all/0, init_per_suite/1, end_per_suite/1]).
+-export([check_create_db/1,
+         check_connect/1,
+         check_save/1,
+         check_lookup/1,
+         check_bulk_lookup/1,
+         check_update/1,
+         check_delete/1,
+         check_query_term/1,
+         check_query/1]).
+
+all() ->
+    [check_create_db,
+     check_connect,
+     check_save,
+     check_lookup,
+     check_bulk_lookup,
+     check_update,
+     check_delete,
+     check_query_term,
+     check_query].
+
+init_per_suite(_Config) ->
+    [].
+
+end_per_suite(_Config) ->
+    ok.
+
+check_create_db(_Config) ->
+    ok.
+
+check_connect(_Config) ->
+    ok.
+
+check_save(_Config) ->
+    ok.
+
+check_lookup(_Config) ->
+    ok.
+
+check_bulk_lookup(_Config) ->
+    ok.
+
+check_update(_Config) ->
+    ok.
+
+check_delete(_Config) ->
+    ok.
+
+check_query_term(_Config) ->
+    ok.
+
+check_query(_Config) ->
+    ok.

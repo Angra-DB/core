@@ -14,7 +14,7 @@
 % API functions
 %
 
--export([ start_link/1
+-export([start_link/2
 	, get_count/0   % we can understand both get_count and stop as adm operations
     , stop/0]).
 
@@ -42,9 +42,21 @@
 -define(QUERY, "query").
 -define(QUERY_TERM, "query_term").
 -define(BULK_LOOKUP, "bulk_lookup").
--define(VALID_COMMANDS, [?SAVE_CMD, ?SAVE_KEY_CMD, ?LOOKUP_CMD, ?UPDATE_CMD, ?DELETE_CMD, ?CONNECT_CMD, ?CREATE_DB_CMD, ?DELETE_DB_CMD, ?QUERY, ?QUERY_TERM, ?BULK_LOOKUP]).
+-define(VALID_COMMANDS, [
+    ?SAVE_CMD, 
+    ?SAVE_KEY_CMD, 
+    ?LOOKUP_CMD, 
+    ?UPDATE_CMD, 
+    ?DELETE_CMD, 
+    ?CONNECT_CMD, 
+    ?CREATE_DB_CMD, 
+    ?DELETE_DB_CMD, 
+    ?QUERY, 
+    ?QUERY_TERM, 
+    ?BULK_LOOKUP
+]).
 
--record(state, {lsock, parent, current_db = none, waiting_request = false, body = {}}). % a record for keeping the server state
+-record(state, {lsock, vnode_id, parent, current_db = none, waiting_request = false, body = {}}). % a record for keeping the server state
 
 %%%======================================================
 %%% API
@@ -55,8 +67,9 @@
 %%% is a bit trick.
 %%%======================================================
 
-start_link(LSock) ->
-    gen_server:start_link(?MODULE, [LSock], []).
+start_link(LSock, VNodeId) ->
+    Name = adb_utils:get_vnode_process(?MODULE, VNodeId),
+    gen_server:start_link({local, Name}, ?MODULE, [LSock, VNodeId], []).
 
 get_count() ->
     gen_server:call(?SERVER, get_count).
@@ -68,8 +81,9 @@ stop() ->
 %%% gen_server callbacks
 %%%===========================================
 
-init([LSock]) ->
-    {ok, #state{lsock = LSock}, 0}.
+init([LSock, VNodeId]) ->
+    lager:info("Server initilized at VNode #~p. ~n", [VNodeId]),
+    {ok, #state{lsock = LSock, vnode_id = VNodeId}, 0}.
 
 handle_call(Msg, _From, State) ->
     {reply, {ok, Msg}, State}.

@@ -3,6 +3,11 @@
 
 -export([create_db/1, connect/1, save/3, lookup/2, bulk_lookup/2, update/3, delete/2, query_term/2, query/2]).
 
+%% Private functions (only exported on testing mode).
+-ifdef(TEST).
+-export([get_hash_func/0]).
+-endif.
+
 -define(HASH_SPACES, [{md5, 16}, {sha, 20}, {sha256, 32}, {sha384, 48}, {sha512, 64}]).
 
 %%=============================================================================
@@ -30,29 +35,42 @@ connect(Database) ->
         {error, Reason}     -> {error, Reason}
     end.
 
-save(Database, {Key, HashFunc}, {Size, Doc}) ->
-    {ok, {HashKey, Target, VNode}} = map_key(HashFunc, Key),
-    Request = {process_request, {VNode, {save_key, Database, {crypto:bytes_to_integer(HashKey), Size, Doc}}}},
-    gen_server:call({adb_vnode_server, Target, replicate}, Request).
+save(Database, Key, {Size, Doc}) ->
+    HashFunc = get_hash_func(),
+    {ok, {_HashKey, Target, VNode}} = map_key(HashFunc, Key),
+    %% Continue to use the original key to store the document. The hash value of the
+    %% key is only used to map it on the cluster.
+    Request = {process_request, {VNode, {save_key, Database, {Key, Size, Doc}}, replicate}},
+    gen_server:call({adb_vnode_server, Target}, Request).
 
-lookup(Database, {Key, HashFunc}) ->
-    {ok, {HashKey, Target, VNode}} = map_key(HashFunc, Key),
-    Request = {process_request, {VNode, {lookup, Database, crypto:bytes_to_integer(HashKey)}}},
+lookup(Database, Key) ->
+    HashFunc = get_hash_func(),
+    {ok, {_HashKey, Target, VNode}} = map_key(HashFunc, Key),
+    %% Continue to use the original key to store the document. The hash value of the
+    %% key is only used to map it on the cluster.
+    Request = {process_request, {VNode, {lookup, Database, Key}}},
     lookup_call(Target, Request).
 
-bulk_lookup(Database, {Keys, HashFunc}) ->
+bulk_lookup(Database, Keys) ->
+    HashFunc = get_hash_func(),
     {ok, HashKeys} = map_keys(HashFunc, Keys),
     bulk_lookup(Database, HashKeys, []).
 
-update(Database, {Key, HashFunc}, {Size, Doc}) ->
-    {ok, {HashKey, Target, VNode}} = map_key(HashFunc, Key),
-    Request = {process_request, {VNode, {update, Database, {crypto:bytes_to_integer(HashKey), Size, Doc}}}},
-    gen_server:call({adb_vnode_server, Target, replicate}, Request).
+update(Database, Key, {Size, Doc}) ->
+    HashFunc = get_hash_func(),
+    {ok, {_HashKey, Target, VNode}} = map_key(HashFunc, Key),
+    %% Continue to use the original key to store the document. The hash value of the
+    %% key is only used to map it on the cluster.
+    Request = {process_request, {VNode, {update, Database, {Key, Size, Doc}}, replicate}},
+    gen_server:call({adb_vnode_server, Target}, Request).
 
-delete(Database, {Key, HashFunc}) ->
-    {ok, {HashKey, Target, VNode}} = map_key(HashFunc, Key),
-    Request = {process_request, {VNode, {delete, Database, crypto:bytes_to_integer(HashKey)}}},
-    gen_server:call({adb_vnode_server, Target, replicate}, Request).
+delete(Database, Key) ->
+    HashFunc = get_hash_func(),
+    {ok, {_HashKey, Target, VNode}} = map_key(HashFunc, Key),
+    %% Continue to use the original key to store the document. The hash value of the
+    %% key is only used to map it on the cluster.
+    Request = {process_request, {VNode, {delete, Database, Key}, replicate}},
+    gen_server:call({adb_vnode_server, Target}, Request).
 
 query_term(Database, Term) ->
     Targets = [node()|nodes()],
@@ -86,9 +104,11 @@ map_key(HashFunc, Key) ->
     {ok, {HashKey, Target, TargetVNode}}.
 
 map_keys(HashFunc, Keys) ->
-    MappedKeys = lists:map(fun(K) ->
-        {ok, {HashKey, Target, VNode}} = map_key(HashFunc, K),
-        {{Target, VNode}, HashKey}
+    MappedKeys = lists:map(fun(OriginalKey) ->
+        {ok, {_HashKey, Target, VNode}} = map_key(HashFunc, OriginalKey),
+        %% Continue to use the original key to store the document. The hash 
+        %% value of the key is only used to map it on the cluster.
+        {{Target, VNode}, OriginalKey}
     end, Keys),
     Targets = proplists:get_keys(MappedKeys),
     GroupedKeys = lists:map(fun({Target, VNode} = T) -> 
@@ -99,22 +119,37 @@ map_keys(HashFunc, Keys) ->
 
 validate_hash(HashFunc) ->
     case proplists:lookup(HashFunc, ?HASH_SPACES) of
-        none     -> {error, invalid_hash};
-        HashSize -> SpaceSize = math:pow(2, HashSize),
-                    {ok, SpaceSize}
+        none                 -> {error, invalid_hash};
+        {HashFunc, HashSize} -> SpaceSize = math:pow(2, 8 * HashSize),
+                                % As the math:pow returns a float, we trucade this value.
+                                {ok, trunc(SpaceSize)}
     end.
 
 find_target_vnode(SpaceSize, HashKey) when is_integer(SpaceSize) ->
     {ok, VNodes} = adb_dist_store:get_config(vnodes),
     PartSize = SpaceSize / VNodes,
-    [VNodeId|_] = lists:filter(fun(X) -> HashKey =< (PartSize * X) end, lists:seq(1, VNodes)), %% Forces to always return the first Id that satify the predicate.
-    {ok, VNodeId}.
+    %% Forces to always return the first Id that satify the predicate.
+    VNodeId = case lists:filter(fun(X) -> HashKey =< trunc(PartSize * X) end, lists:seq(1, VNodes)) of 
+        []     -> %% This adjustment is necessary for the case, the last element edge can be 
+                  %% less than the theorical edge, not mapping some key. This is because of
+                  %% our truncation.
+                  VNodes; 
+        [Id|_] -> Id 
+    end,
+    {ok, {PartSize, VNodeId}}.
 
 find_target(PartSize, TargetVNode, HashKey) ->
     {ok, RingInfo} = adb_dist_store:get_ring_info(),
     {ok, SortedRingInfo} = adb_utils:sort_ring_info(RingInfo),
-    StartPoint = PartSize * TargetVNode,
-    [{Target, _}|_] = lists:filter(fun({_, {Num, Den}}) -> HashKey =< (StartPoint + ((Num * PartSize) / Den)) end, SortedRingInfo),
+    StartPoint = PartSize * (TargetVNode - 1),
+    Target = case lists:filter(fun({_, {Num, Den}}) -> HashKey =< trunc(StartPoint + (Num * PartSize) / Den) end, SortedRingInfo) of
+        []           -> %% This adjustment is necessary for the case, the last element edge can be 
+                        %% less than the theorical edge, not mapping some key. This is because of
+                        %% our truncation.
+                        {Tgt, _} = lists:last(SortedRingInfo),
+                        Tgt;
+        [{Tgt, _}|_] -> Tgt
+    end,
     {ok, Target}.
 
 lookup_call(Target, Request) ->
@@ -135,8 +170,12 @@ lookup_call(Target, Request, SearchList) ->
     end.
 
 bulk_lookup(_, [], Responses) -> Responses;
-bulk_lookup(Database, [{HashKeys, Target, VNode}| Rest], Responses) ->
-    Keys = [crypto:bytes_to_integer(K) || K <- HashKeys],
+bulk_lookup(Database, [{Keys, Target, VNode}| Rest], Responses) ->
     Request = {process_request, {VNode, {bulk_lookup, Database, Keys}}},
     Response = gen_server:call({adb_vnode_server, Target, replicate}, Request),
     bulk_lookup(Database, Rest, [Response|Responses]).
+
+get_hash_func() ->
+    {ok, PartitionConfig} = adb_dist_store:get_config(partition),
+    {consistent, HashFunc} = PartitionConfig,
+    HashFunc.

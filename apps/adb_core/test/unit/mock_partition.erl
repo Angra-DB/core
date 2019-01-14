@@ -13,28 +13,18 @@ create_db(Database) ->
 connect(Database) ->
     {ok, Database}.
 
-save(Database, {Key, HashFunc}, {Size, Doc}) ->
-    {ok, {Database, Key, HashFunc, Size, Doc}};
 save(Database, Key, {Size, Doc}) ->
     {ok, {Database, Key, Size, Doc}}.
 
-lookup(Database, {Key, HashFunc}) ->
-    {ok, {Database, Key, HashFunc}};
 lookup(Database, Key) ->
     {ok, {Database, Key}}.
 
-bulk_lookup(Database, {Keys, HashFunc}) ->
-    {ok, {Database, Keys, HashFunc}};
 bulk_lookup(Database, Keys) ->
     {ok, {Database, Keys}}.
 
-update(Database, {Key, HashFunc}, {Size, Doc}) ->
-    {ok, {Database, Key, HashFunc, Size, Doc}};
 update(Database, Key, {Size, Doc}) ->
     {ok, {Database, Key, Size, Doc}}.
 
-delete(Database, {Key, HashFunc}) ->
-    {ok, {Database, Key, HashFunc}};
 delete(Database, Key) ->
     {ok, {Database, Key}}.
 

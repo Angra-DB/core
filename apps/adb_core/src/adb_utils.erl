@@ -1,6 +1,18 @@
 -module(adb_utils).
 
--export([get_env/1, get_env/2, gen_key/0, gen_name/0, choose_randomly/1, unique_list/1, get_vnode_name/1, get_vnode_process/2, get_vnode_process/3, get_database_name/2, sort_ring_info/1]).
+-export([
+    get_env/1, 
+    get_env/2, 
+    gen_key/0, 
+    gen_name/0, 
+    choose_randomly/1, 
+    unique_list/1, 
+    get_vnode_name/1, 
+    get_vnode_process/2, 
+    get_vnode_process/3, 
+    get_database_name/2, 
+    sort_ring_info/1
+]).
 
 get_env(EnvVar) ->
     case os:getenv(EnvVar, none) of

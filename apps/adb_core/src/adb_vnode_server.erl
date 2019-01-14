@@ -30,12 +30,20 @@ init(_Args) ->
     lager:info("Initializing adb_vnode server.~n"),
     {ok, [], 0}.
 
-handle_call({process_request, {Target, Args}}, _From, State) ->
-    Response = case Target of
-        all -> send_to_all_vnodes({process_request, Args});
-        Id  -> Target = adb_utils:get_vnode_name(Id),
+handle_call({process_request, {TargetVNode, Args, replicate}}, _From, State) ->
+    Response = case TargetVNode of
+        all -> send_to_all_vnodes({process_request, Args, replicate});
+        Id  -> VNodeName = adb_utils:get_vnode_name(Id),
                Request = {process_request, Args},
-               gen_server:call(Target, Request)
+               gen_server:call(VNodeName, Request)
+    end,
+    {reply, Response, State};
+handle_call({process_request, {TargetVNode, Args}}, _From, State) ->
+    Response = case TargetVNode of
+        all -> send_to_all_vnodes({process_request, Args});
+        Id  -> VNodeName = adb_utils:get_vnode_name(Id),
+               Request = {process_request, Args},
+               gen_server:call(VNodeName, Request)
     end,
     {reply, Response, State};
 handle_call(Msg, _From, State) ->

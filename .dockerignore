@@ -1,0 +1,17 @@
+.eunit
+deps
+*.o
+*.adb
+*.beam
+*.plt
+*.erl~
+*.*~
+erl_crash.dump
+.concrete/DEV_MODE
+.rebar
+_build/
+log/
+*.*#
+doc/
+.idea
+rebar.lock

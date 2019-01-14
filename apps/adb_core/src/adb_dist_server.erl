@@ -62,14 +62,16 @@ forward_request(Command, Args) when is_atom(Command) ->
 init([]) ->
     lager:info("Initializing adb_dist server.~n"),
     RingId = get_or_create_ring_id(),
-    adb_dist_store:set_ring_info(node(), RingId),
-    lager:info("Ring ID defined as '~p'.~n", [RingId]),
     adb_gossip_server:sync(),
+    adb_dist_store:set_ring_info(node(), RingId),
+    {ok, RingInfo} = adb_dist_store:get_ring_info(),
+    adb_gossip_server:create(ring_info, RingInfo, fun store_ring_info/1, fun compare_ring_info/2),
+    lager:info("Ring ID defined as '~p'.~n", [RingId]),
     {ok, none, 0}.
 
 handle_call({forward_request, {Command, Args}}, _From, State) ->
-    PartitionMode = get_partition_module(),
-    case gen_partition:forward_request(Command, Args, PartitionMode) of
+    PartitionModule = get_partition_module(),
+    case gen_partition:forward_request(Command, Args, PartitionModule) of
         {ok, Response}    -> {reply, {ok, Response}, State};
         {error, Response} -> {reply, {error, Response}, State}
     end;
@@ -128,9 +130,50 @@ generate_new_ring_id(LastRingId) ->
 get_partition_module() ->
     {ok, Partition} = adb_dist_store:get_config(partition),
     case Partition of
-        {consistent, HashFunc} -> {consistent_partition, HashFunc};
-        _Full                  -> full_partition
+        {consistent, _HashFunc} -> consistent_partition;
+        full                    -> full_partition
     end.
 
 store_ring_id({Node, RingId}) ->
-    adb_dist_store:set_ring_info(Node, RingId).
+    adb_dist_store:set_ring_info(Node, RingId),
+    {ok, RingInfo} = adb_dist_store:get_ring_info(),
+    adb_gossip_server:update(ring_info, [{value, RingInfo}, {timestamp, os:timestamp()}]).
+
+store_ring_info(RingInfo) ->
+    lists:map(fun({Node, RingId}) -> 
+        adb_dist_store:set_ring_info(Node, RingId)
+    end, RingInfo).
+
+compare_ring_info(StoreOne, StoreTwo) ->
+    RingInfoOne = maps:get(value, StoreOne),
+    RingInfoTwo = maps:get(value, StoreTwo),
+    TwoDiff = lists:filter(fun({Key, _Value}) ->
+        case lists:keysearch(Key, 1, RingInfoTwo) of 
+            false      -> false;
+            {value, _} -> true
+        end
+    end, RingInfoOne),
+    OneDiff = lists:filter(fun({Key, _Value}) ->
+        case lists:keysearch(Key, 1, RingInfoOne) of 
+            false      -> false;
+            {value, _} -> true
+        end
+    end, RingInfoTwo),
+    TamOneDiff = length(OneDiff),
+    TamTwoDiff = length(TwoDiff),
+    if
+        (TamOneDiff > 0) ->
+            lists:map(fun({Key, RingId}) -> 
+                adb_dist_store:set_ring_info(Key, RingId)
+            end, OneDiff),
+            {ok, RingInfo} = adb_dist_store:get_ring_info(),
+            spawn(fun() -> 
+                adb_gossip_server:update(ring_info, [{value, RingInfo}, {timestamp, os:timestamp()}]) 
+            end),
+            if 
+                (TamOneDiff =< TamTwoDiff) -> older;
+                (TamOneDiff < TamTwoDiff) -> newer
+            end;
+        (TamOneDiff =:= 0) and (TamTwoDiff =:= 0) -> equal;
+        (TamOneDiff =< TamTwoDiff) -> newer
+    end.

@@ -54,7 +54,11 @@ handle_info({timeout, _Ref, trigger}, State) ->
     erlang:cancel_timer(State#state.tref),
     %% =========================
     %% Perform syncing.
-    adb_gossip_server:sync(),
+    try 
+        adb_gossip_server:sync()
+    catch
+        _Class:_Err -> lager:error("An error ocurred while syncing.")
+    end,
     %% =========================
     TRef = erlang:start_timer(State#state.gossip_interval, self(), trigger),
     NewState = State#state{tref = TRef},

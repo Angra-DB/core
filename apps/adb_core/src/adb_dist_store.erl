@@ -16,7 +16,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -define(SERVER, ?MODULE).
--define(CONFIG, [persistence, max_index_size, distribution, partition, replication, write_quorum, read_quorum, vnodes, gossip_interval, server]).
+-define(CONFIG, [persistence, max_index_size, distribution, partition, replication, write_quorum, read_quorum, vnodes, gossip_interval]).
 
 -record(state, {configStore, ringInfoStore}).
 

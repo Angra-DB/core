@@ -26,15 +26,17 @@
 %% @type key() = string(). The document's key.
 -type key() :: string().
 
-%% @type document() = string(). The document.
--type document() :: string().
+%% @type doc_size() = integer(). The document's size.
+-type doc_size() :: integer().
+
+%% @type doc_content() = string(). The document's content.
+-type doc_content() :: string().
+
+%% @type document() = {doc_size(), doc_content()}. The document structure.
+-type document() :: {doc_size(), doc_content()}.
 
 %% @type child_module() = atom(). The child module.
 -type child_module() :: atom().
-
-%% @type hash_func() = atom(). The hash function to be used on consistent
-%% partition.
--type hash_func() :: atom().
 
 %% @type child_response() = success_response() | failed_response(). The valid
 %% child response.
@@ -58,24 +60,28 @@
 %% statistics.
 -type response_stats() :: [success_stats() | failed_stats()].
 
+%% @type valid_arguments() = database_name() | {database_name(), document()} | {database_name(), key()} | {database_name(), {key(), integer(), document()}} | {database_name(), [key()]} | {database_name(), any()}
+%% The definition of a valid argument for a operation.
+-type valid_arguments() :: database_name() | {database_name(), document()} | {database_name(), key()} | {database_name(), {key(), integer(), document()}} | {database_name(), [key()]} | {database_name(), any()}.
+
+%% @type valid_operation() = create_db | connect | save | save_key | lookup | bulk_lookup | update | delete | query_term | query
+%% The definition of a valid operation.
+-type valid_operation() :: create_db | connect | save | save_key | lookup | bulk_lookup | update | delete | query_term | query.
+
+
 %%=============================================================================
 %% Behavior callbacks
 %%=============================================================================
 
--callback create_db(database_name())                                             -> child_response().
--callback connect(database_name())                                               -> child_response().
--callback save(database_name(), {key(), hash_func()}, {integer(), document()})   -> child_response();
-              (database_name(), key(), {integer(), document()})                  -> child_response().
--callback lookup(database_name(), {key(), hash_func()})                          -> child_response();
-                (database_name(), key())                                         -> child_response().
--callback bulk_lookup(database_name(), {[key()], hash_func()})                   -> child_response();
-                     (database_name(), [key()])                                  -> child_response().
--callback update(database_name(), {key(), hash_func()}, {integer(), document()}) -> child_response();
-                (database_name(), key(), {integer(), document()})                -> child_response().
--callback delete(database_name(), {key(), hash_func()})                          -> child_response();
-                (database_name(), key())                                         -> child_response().
--callback query_term(database_name(), any())                                     -> child_response().
--callback query(database_name(), any())                                          -> child_response().
+-callback create_db(database_name())                  -> child_response().
+-callback connect(database_name())                    -> child_response().
+-callback save(database_name(), key(), document())    -> child_response().
+-callback lookup(database_name(), key())              -> child_response().
+-callback bulk_lookup(database_name(), [key()])       -> child_response().
+-callback update(database_name(), key(), document())  -> child_response().
+-callback delete(database_name(), key())              -> child_response().
+-callback query_term(database_name(), any())          -> child_response().
+-callback query(database_name(), any())               -> child_response().
 
 %%=============================================================================
 %% API functions
@@ -101,13 +107,10 @@ start(_Child, _Args) -> ok.
 %% @doc Forwards some operation to the chosen child to be executed.
 %% 
 %% @spec forward_request(Operation, Arguments, ChildSpec) -> Response
-%%       Operation = create_db | connect | save | save_key | lookup | bulk_lookup | update | delete | query_term | query
-%%       Arguments = DatabaseName | {DatabaseName, Key} | {DatabaseName, Document} | {DatabaseName, {Key, Document}}
-%%       Key = string(),
-%%       Document = string(),
-%%       DatabaseName = string()
-%%       ChildSpec = atom() | {atom(), atom()}
-%%       Response = success_response() | failed_response()
+%%       Operation = valid_operation()
+%%       Arguments = valid_arguments()
+%%       ChildSpec = child_module()
+%%       Response = child_response()
 %% 
 %% @param Database. The name of the database to be created.
 %% @param Child. An atom identifying the child module that implements this
@@ -116,71 +119,28 @@ start(_Child, _Args) -> ok.
 %% @returns The response of the operation.
 %%
 %% @end
--spec forward_request(create_db, database_name(), {child_module(), hash_func()})      -> child_response();
-    (create_db, database_name(), child_module())                                      -> child_response();
-    (connect, database_name(), {child_module(), hash_func()})                         -> child_response();
-    (connect, database_name(), child_module())                                        -> child_response();
-    (save, {database_name(), integer(), document()}, {child_module(), hash_func()})              -> child_response();
-    (save, {database_name(), integer(), document()}, child_module())                             -> child_response();
-    (save_key, {database_name(), {key(), integer(), document()}}, {child_module(), hash_func()}) -> child_response();
-    (save_key, {database_name(), {key(), integer(), document()}}, child_module())                -> child_response();
-    (lookup, {database_name(), key()}, {child_module(), hash_func()})                 -> child_response();
-    (lookup, {database_name(), key()}, child_module())                                -> child_response();
-    (bulk_lookup, {database_name(), [key()]}, {child_module(), hash_func()})          -> child_response();
-    (bulk_lookup, {database_name(), [key()]}, child_module())                         -> child_response();
-    (update, {database_name(), {key(), integer(), document()}}, {child_module(), hash_func()})   -> child_response();
-    (update, {database_name(), {key(), integer(), document()}}, child_module())                  -> child_response();
-    (delete, {database_name(), key()}, {child_module(), hash_func()})                 -> child_response();
-    (delete, {database_name(), key()}, child_module())                                -> child_response();
-    (query_term, {database_name(), any()}, {child_module(), hash_func()})             -> child_response();
-    (quary_term, {database_name(), any()}, child_module())                            -> child_response();
-    (query, {database_name(), any()}, {child_module(), hash_func()})                  -> child_response();
-    (quary, {database_name(), any()}, child_module())                                 -> child_response().
-
-forward_request(create_db, Database, {Child, _HashFunc}) ->
-    Child:create_db(Database);
+-spec forward_request(valid_operation(), valid_arguments(), child_module()) -> child_response().
 forward_request(create_db, Database, Child) ->
     Child:create_db(Database);
-forward_request(connect, Database, {Child, _HashFunc}) ->
-    Child:connect(Database);
 forward_request(connect, Database, Child) ->
     Child:connect(Database);
-forward_request(save, {Database, {Size, Doc}}, {Child, HashFunc}) ->
-    %% This command will be converted to a 'save_key' command, generating here
-    %% a key for the document.
-    Key = adb_utils:gen_key(),
-    forward_request(save_key, {Database, {Key, Size, Doc}}, {Child, HashFunc});
 forward_request(save, {Database, {Size, Doc}}, Child) ->
     %% This command will be converted to a 'save_key' command, generating here
     %% a key for the document.
     Key = adb_utils:gen_key(),
     forward_request(save_key, {Database, {Key, Size, Doc}}, Child);
-forward_request(save_key, {Database, {Key, Size, Doc}}, {Child, HashFunc}) ->
-    Child:save(Database, {Key, HashFunc}, {Size, Doc});
 forward_request(save_key, {Database, {Key, Size, Doc}}, Child) ->
     Child:save(Database, Key, {Size, Doc});
-forward_request(lookup, {Database, Key}, {Child, HashFunc}) ->
-    Child:lookup(Database, {Key, HashFunc});
 forward_request(lookup, {Database, Key}, Child) ->
     Child:lookup(Database, Key);
-forward_request(bulk_lookup, {Database, Keys}, {Child, HashFunc}) ->
-    Child:bulk_lookup(Database, {Keys, HashFunc});
 forward_request(bulk_lookup, {Database, Keys}, Child) ->
     Child:bulk_lookup(Database, Keys);
-forward_request(update, {Database, {Key, Size, Doc}}, {Child, HashFunc}) ->
-    Child:update(Database, {Key, HashFunc}, {Size, Doc});
 forward_request(update, {Database, {Key, Size, Doc}}, Child) ->
     Child:update(Database, Key, {Size, Doc});
-forward_request(delete, {Database, Key}, {Child, HashFunc}) ->
-    Child:delete(Database, {Key, HashFunc});
 forward_request(delete, {Database, Key}, Child) ->
     Child:delete(Database, Key);
-forward_request(query_term, {Database, Term}, {Child, _HashFunc}) ->
-    Child:query_term(Database, Term);
 forward_request(query_term, {Database, Term}, Child) ->
     Child:query_term(Database, Term);
-forward_request(query, {Database, Query}, {Child, _HashFunc}) ->
-    Child:query(Database, Query);
 forward_request(query, {Database, Query}, Child) ->
     Child:query(Database, Query).
 

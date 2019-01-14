@@ -1,6 +1,6 @@
 -module(tests_utils).
 
--export([init_adb_dist_store/0, init_adb_dist_store/1, stop_adb_dist_store/0, init_mock_server/0, stop_mock_server/0]).
+-export([get_default_config/0, init_adb_dist_store/0, init_adb_dist_store/1, stop_adb_dist_store/0, init_mock_server/0, stop_mock_server/0]).
 
 -define(DEFAULT_CONFIG, [{persistence, adbtree},
                          {max_index_size, 1000000},
@@ -12,6 +12,9 @@
                          {vnodes, 3},
                          {gossip_interval, 60000},
                          {server, none}]).
+
+get_default_config() ->
+    ?DEFAULT_CONFIG.
 
 init_adb_dist_store() ->
     init_adb_dist_store(?DEFAULT_CONFIG).

@@ -10,7 +10,7 @@
         [{persistence, adbtree},         %% {persistence, ets | hanoidb | adbtree}
          {max_index_size, 1000000},      %% Maximum size of the memory index in bytes
          {distribution, dist},           %% {distribution, dist | mono}
-         {partition, full},              %% {partition, full | {consistent, <hash_func>}}
+         {partition, {consistent, md5}}, %% {partition, full | {consistent, <hash_func>}}
          {replication, 3},               %% Number of copies
          {write_quorum, 2},              %% Number of successful writes needed to consider the operation valid.
          {read_quorum, 2},               %% Number of successful reads needed to consider the operation valid.
