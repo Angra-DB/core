@@ -9,7 +9,7 @@
         % {auth, {{name, adb_authentication | (soon, there will be others...) }, [Args (none until then]}}
         [
           {persistence, {{name, adbtree}, [{max_index_size, 50000000}]}},
-          {authentication, {{name, adb_cert_authentication}, []}},
+          {authentication, {{name, adb_authentication}, []}},
           {authorization, {{name, simple_authorization}, []}},
           {ssl, [{certfile, "./test_certificates/server_cert.pem"}, {keyfile, "./test_certificates/server_key.pem"}, {cacertfile, "./test_certificates/ca_cert.pem"}]}
         ]
