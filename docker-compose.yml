@@ -12,34 +12,6 @@ services:
     ports: 
       - 1234-1236:1234-1236
 
-  node-b:
-    image: angra:latest
-    environment: 
-      - ANGRA_NAME=b@angra2.com
-      - ANGRA_COOKIE=teste
-      - ADB_ACCESS=a@angra1.com
-    depends_on: 
-      - "node-a"
-    container_name: angra2.com
-    networks:
-      - angra_lan
-    ports: 
-      - 1237-1239:1234-1236
-
-  node-c:
-    image: angra:latest
-    environment: 
-      - ANGRA_NAME=c@angra3.com
-      - ANGRA_COOKIE=teste
-      - ADB_ACCESS=a@angra1.com
-    depends_on: 
-      - "node-a"
-    container_name: angra3.com
-    networks:
-      - angra_lan
-    ports: 
-      - 1240-1242:1234-1236
-
 networks:
   angra_lan:
     driver: bridge
