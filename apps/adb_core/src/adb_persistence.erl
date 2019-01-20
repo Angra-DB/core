@@ -1,5 +1,5 @@
 %%-----------------------------------------------------------------------------
-%% @author Ismael Coelho Medeiros <140083162@aluno.unb.br>
+%% @author Ismael Medeiros <ismael.medeiros96@gmail.com>
 %%
 %% @doc a first attempt to build the Angra-DB persistence.
 %% 
@@ -16,15 +16,16 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {persistence = none, name = none}).
+-record(state, {persistence = none, name = none, vnode_id = none, docs = none}).
 
 %%=============================================================================
 %% API functions
 %%=============================================================================
 
-start_link(Persistence, Name) ->
+start_link(Persistence, Id) ->
+    Name = adb_utils:get_vnode_process(?MODULE, Id), 
     lager:info("Initializing ~s.~n", [Name]),
-    gen_server:start_link({local, Name}, ?MODULE, [Persistence, Name], []).
+    gen_server:start_link({local, Name}, ?MODULE, [Persistence, Name, Id], []).
 
 get_count() ->
     gen_server:call(?SERVER, get_count).
@@ -39,13 +40,19 @@ replicate_request(Args, Copies) ->
 %% gen_server callbacks
 %%=============================================================================
 
-init([Persistence, Name]) ->
-    {ok, #state{persistence = Persistence, name = Name}, 0}.
+init([Persistence, Name, Id]) ->
+    {ok, #state{persistence = Persistence, name = Name, vnode_id = Id, docs = 0}, 0}.
 
 handle_call({process_request, Args}, _From, State) -> 
     PersistRes = process_request(Args, State),
     Response = standardize_response(PersistRes),
-    {reply, Response, State};
+    %% Count documents
+    NewState = case Args of
+        {save_key, _, _} -> State#state{docs = State#state.docs + 1};
+        _Rest            -> State
+    end,
+    lager:info("VNode #~p> Docs: ~p~n", [NewState#state.vnode_id, NewState#state.docs]),
+    {reply, Response, NewState};
 handle_call({process_request, Args, replicate}, _From, State) -> 
     PersistRes = process_request(Args, State),
     Response = standardize_response(PersistRes),
@@ -53,7 +60,13 @@ handle_call({process_request, Args, replicate}, _From, State) ->
         {ok, Next} when Next =:= node() -> do_nothing;
         {ok, Next}                      -> spawn(Next, State#state.name, replicate_request, [Args, [node()]])
     end,
-    {reply, Response, State};
+    %% Count documents
+    NewState = case Args of
+        {save_key, _, _} -> State#state{docs = State#state.docs + 1};
+        _Rest            -> State
+    end,
+    lager:info("VNode #~p> Docs: ~p~n", [NewState#state.vnode_id, NewState#state.docs]),
+    {reply, Response, NewState};
 handle_call({replicate_request, Args, Copies}, _From, State) ->
     {ok, Replication} = adb_dist_store:get_config(),
     if 
@@ -69,7 +82,13 @@ handle_call({replicate_request, Args, Copies}, _From, State) ->
             end;
         true                          -> do_nothing
     end,
-    {reply, ok, State};
+    %% Count documents
+    NewState = case Args of
+        {save_key, _, _} -> State#state{docs = State#state.docs + 1};
+        _Rest            -> State
+    end,
+    lager:info("Docs: ~p~n", [NewState#state.docs]),
+    {reply, ok, NewState};
 handle_call(Msg, _From, State) ->
     {reply, {ok, Msg}, State}.
 
@@ -92,10 +111,10 @@ code_change(_OldVsn, State, _Extra) ->
 
 process_request({Command, Database, Database}, State) ->
     DatabaseName = adb_utils:get_database_name(Database, State#state.name),
-    gen_persistence:process_request(Command, DatabaseName, DatabaseName, State#state.persistence);
+    gen_persistence:process_request(Command, DatabaseName, DatabaseName, State#state.persistence, State#state.vnode_id);
 process_request({Command, Database, Args}, State) ->
     DatabaseName = list_to_atom(adb_utils:get_database_name(Database, State#state.name)),
-    gen_persistence:process_request(Command, DatabaseName, Args, State#state.persistence).
+    gen_persistence:process_request(Command, DatabaseName, Args, State#state.persistence, State#state.vnode_id).
     
 standardize_response(ok)                -> {ok, []};
 standardize_response({ok, Response})    -> {ok, Response};

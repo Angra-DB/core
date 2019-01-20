@@ -49,7 +49,7 @@
 % 			modifier(DBName);
 % 		{Sender, _} ->
 % 			Sender ! invalid_operation;
-% 		T -> 
+% 		T ->
 % 			io:print("~p", [T])
 % 	end.
 
@@ -99,10 +99,10 @@ delete(DBName, Key) ->
 	btree_delete(Key, DBName).
 
 connect(DBName) ->
-	case Fp = file:open(DBName++"Index.adb", [read]) of
+	case file:open(DBName++"Index.adb", [read]) of
 		T = {error, enoent} ->
 			T;
-		{ok, _} ->
+		{ok, Fp} ->
 			file:close(Fp),
 			{ok, DBName};
 		Error ->
@@ -129,6 +129,16 @@ read_keys(File, Settings, Btree, [Head | Tail]) ->
 			throw({erro, "Leaf type mismatch."})
 	end.
 	
+exists(DBName) ->
+	case file:open(DBName++"Index.adb", [read]) of
+		{error, enoent} ->
+			false;
+		{ok, Fp} ->
+			file:close(Fp),
+			true;
+		Error ->
+			{error, Error}
+	end.
 
 
 compress_index(DBName) ->
@@ -156,14 +166,14 @@ compress_index(FpOld, Btree = #btree{curNode=PNode}, FpNew, Settings) ->
 	file:position(FpOld, {bof, PNode}),
 	{ok, Type} = file:read(FpOld, 1),
 	case Type of
-		<<?Leaf:1/unit:8>> -> 
+		<<?Leaf:1/unit:8>> ->
 			Leaf = read_leaf(FpOld, Settings, Btree),
-			write_leaf(FpNew, Settings, Btree, Leaf);		
+			write_leaf(FpNew, Settings, Btree, Leaf);
 		<<?Node:1/unit:8>> ->
 			Node = read_node(FpOld, Btree),
 			{ok, NewPointers} = compress_index(Node#node.nodePointers, FpOld, Btree, FpNew, Settings),
 			write_node(FpNew, Btree, Node#node{nodePointers = NewPointers});
-		_V -> 
+		_V ->
 			error(invalidNodeId)
 	end.
 
@@ -175,7 +185,6 @@ compress_index([PNode | NodePointers], FpOld, Btree, FpNew, Settings) ->
 	{ok, NewPointers} = compress_index(NodePointers, FpOld, Btree, FpNew, Settings),
 	{ok, NewPos} = compress_index(FpOld, Btree#btree{curNode=PNode}, FpNew, Settings),
 	{ok, [NewPos | NewPointers]}.
-
 
 doc_count(DBName) ->
 	LeafList = get_list(DBName),
@@ -222,10 +231,9 @@ doc_list([Leaf | Tail], Fp, Settings, Btree) ->
 			error(invalid_doc_leaf)
 	end.
 
-
 %	Função que lê um documento do arquivo de documentos. Recebe como parâmetro: *parâmetros* . Retorna: *retorno*.
 %	A function that reads a document from the document's file. Receives as attribute: *attribute*. Returns: *return value*.
-read_doc(PosInBytes, Settings) -> 
+read_doc(PosInBytes, Settings) ->
 	{ok, Fp} = file:open((Settings#dbsettings.dbname ++ "Docs.adb"), [read, binary]),
 	{ok, _NP} = file:position(Fp, {bof, PosInBytes}),
 	SizeSize = Settings#dbsettings.sizeinbytes,
@@ -234,7 +242,7 @@ read_doc(PosInBytes, Settings) ->
 	{ok, <<Version:SizeOfVersion/unit:8>>} = file:read(Fp, Settings#dbsettings.sizeversion),
 	{ok, Doc} = file:read(Fp, DocSize),
 	file:close(Fp),
-	{ok, Version, Doc}.
+	{ok, Doc, {ver, Version}}.
 
 
 %	Função que atualiza um documento no arquivo de documentos. Recebe como parâmetro: *parâmetros* . Retorna: *retorno*.
@@ -253,7 +261,7 @@ save_doc(PosLastDoc, LastVersion, Doc, Settings) ->
 	{ok, Pos, (LastVersion+1)}.
 
 	% On create, remember to pass "-1" as PosLastDoc and "0" as LastVersion.
-	
+
 %Add exception handling later...
 %Name is the name of the Database, without any extensions.
 %Header is formated as: NameOfDB/40bytes, SizeOfSizeOfDocs/8bytes,SyzeOfVersion/8bytes,BtreeOrder/2bytes, PointerForRoot/8Bytes.
@@ -271,7 +279,7 @@ create_db(Name, SizeOfSizeOfDoc, SizeOfVersion, BtreeOrder) ->
 		file:close(Fp),
 		{ok, Settings}
 	catch
-		error:Error -> 
+		error:Error ->
 			{error, Error}
 	end.
 
@@ -294,7 +302,7 @@ insert(Doc, Key, DBName) ->
 		{ok, NewRoot} = insert(Fp, Btree, Settings, Key, PosDoc, Version),
 		write_header(Fp, Settings, Btree, NewRoot),
 		file:close(Fp),
-		{ok, Key}
+		{ok, {key, Key}, {ver, Version}}
 	catch
 		error:Error ->
 			{error, Error};
@@ -312,46 +320,46 @@ insert(Fp, Btree, Settings, Key, PosDoc, Version) ->
 			error(Error);
 		exit:Error ->
 			exit(Error)
-	end.		
+	end.
 
 btree_insert(Fp, Btree = #btree{curNode = PNode}, Settings, Key, PosDoc, Version) ->
 	file:position(Fp, {bof, PNode}),
 	{ok, Type} = file:read(Fp, 1),
 	case Type of
-		<<?Leaf:1/unit:8>> -> 
+		<<?Leaf:1/unit:8>> ->
 			Leaf = read_leaf(Fp, Settings, Btree),
 			try leaf_insert(Leaf, Btree#btree.order, Key, PosDoc, Version) of
-				{ok, NewLeaf} -> 
+				{ok, NewLeaf} ->
 					write_leaf(Fp, Settings, Btree, NewLeaf);
 				{ok, NewLeafL, NewLeafR, NewValue} ->
 					{ok, NewPosL} = write_leaf(Fp, Settings, Btree, NewLeafL),
 					{ok, NewPosR} = write_leaf(Fp, Settings, Btree, NewLeafR),
 					{ok, NewPosL, NewPosR, NewValue}
 			catch
-				error:Error -> 
+				error:Error ->
 					error(Error)
 			end;
 		<<?Node:1/unit:8>> ->
 			Node = read_node(Fp, Btree),
 			NextNode = find_next_node(Node, Key),
 			try btree_insert(Fp, Btree#btree{curNode = NextNode}, Settings, Key, PosDoc, Version) of
-				{ok, ChildP} -> 
+				{ok, ChildP} ->
 					NewNode = update_reference(Node, Key, ChildP),
 					write_node(Fp, Btree, NewNode);
 				{ok, LChildP, RChildP, NewValue} ->
 					case node_insert(Node, Btree#btree.order, LChildP, RChildP, NewValue) of
 						{ok, NewNode} ->
-							write_node(Fp, Btree, NewNode); 
+							write_node(Fp, Btree, NewNode);
 						{ok, NewNodeL, NewNodeR, PromotedValue} ->
 							{ok, NewPosL} = write_node(Fp, Btree, NewNodeL),
 							{ok, NewPosR} = write_node(Fp, Btree, NewNodeR),
 							{ok, NewPosL, NewPosR, PromotedValue}
 					end
 			catch
-				error:Error -> 
+				error:Error ->
 					error(Error)
 			end;
-		_V -> 
+		_V ->
 			error(invalidNodeId)
 	end.
 
@@ -424,7 +432,7 @@ delete(Fp, Btree = #btree{order=BtreeOrder, curNode=PNode}, Settings, Key) ->
 							{ok, NewNode} = update_key_and_references(Node, PChildNode, PBrother, NewDivKey, DivKey, Side),
 							write_node(Fp, Btree, NewNode)
 					end
-			end				
+			end
 	end.
 
 
@@ -448,17 +456,17 @@ btree_delete(Fp, Btree = #btree{curNode = PNode, order=BtreeOrder}, Settings, Ke
 					end,
 					NewNode = update_reference(Node, Key, PChildNode),
 					{ok, NewNode};
-				{lacking, ChildNode} -> 
+				{lacking, ChildNode} ->
 					case find_brother(Fp, Node, Key, Settings, Btree) of
 						{Side, Brother, DivKey} when length(Brother#node.keys) == (BtreeOrder-1) div 2 ->
 							NewChildNode = merge(ChildNode, Brother, DivKey, Side),
 							{ok, PChildNode} = write_node(Fp, Btree, NewChildNode),
 							delete_key_and_update(Node, DivKey, PChildNode, Btree#btree.order);
-						
+
 						{Side, Brother, DivKey} when length(Brother#leaf.keys) == (BtreeOrder-1) div 2 ->
 							NewChildNode = merge(ChildNode, Brother, DivKey, Side),
 							{ok, PChildNode} = write_leaf(Fp, Settings, Btree, NewChildNode),
-							delete_key_and_update(Node, DivKey, PChildNode, Btree#btree.order);				
+							delete_key_and_update(Node, DivKey, PChildNode, Btree#btree.order);
 						{Side, Brother, DivKey} ->
 							{NewChildNode, NewBrother, NewDivKey} = borrow(ChildNode, Brother, DivKey, Side),
 							if
@@ -470,21 +478,21 @@ btree_delete(Fp, Btree = #btree{curNode = PNode, order=BtreeOrder}, Settings, Ke
 									{ok, PBrother} = write_leaf(Fp, Settings, Btree, NewBrother)
 							end,
 							update_key_and_references(Node, PChildNode, PBrother, NewDivKey, DivKey, Side)
-					end 
+					end
 
 			end
 	end.
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	Area where the lookup and update functions will take place. Now functional.
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 btree_lookup(Key, DBName) ->
 	try
@@ -500,7 +508,7 @@ btree_lookup(Key, DBName) ->
 			{error, Error}
 	end.
 
-btree_lookup(Fp, Settings, Btree = #btree{curNode = PNode}, Key) -> 
+btree_lookup(Fp, Settings, Btree = #btree{curNode = PNode}, Key) ->
 	file:position(Fp, {bof, PNode}),
 	{ok, Type} = file:read(Fp, 1),
 	case Type of
@@ -523,7 +531,7 @@ btree_lookup(Fp, Settings, Btree = #btree{curNode = PNode}, Key) ->
 	end.
 
 doc_pointer(Key, [LKey|LKeys], [PDoc|LDocPointers]) ->
-	if 
+	if
 		Key == LKey ->
 			PDoc;
 		true ->
@@ -535,14 +543,14 @@ doc_pointer(_, [], []) ->
 
 
 
-btree_update(Doc, Key, DBName) -> 
+btree_update(Doc, Key, DBName) ->
 	try
 		NameIndex = DBName++"Index.adb",
 		{ok, Fp} = file:open(NameIndex, [read, write, binary]),
 		{Settings, Btree} = get_header(Fp),
-		btree_update(Fp, Settings, Btree, Key, Doc, root),
+		{ok, NewVersion} = btree_update(Fp, Settings, Btree, Key, Doc, root),
 		file:close(Fp),
-		ok
+		{ok, NewVersion}
 	catch
 		error:Error ->
 			{error, Error}
@@ -556,16 +564,16 @@ btree_update(Fp, Settings, Btree = #btree{curNode = PNode}, Key, Doc, IsRoot) ->
 			Node = read_node(Fp, Btree),
 			NextNode = find_next_node(Node, Key),
 			try
-				SonPointer = btree_update(Fp, Settings, Btree#btree{curNode = NextNode}, Key, Doc, noRoot),
+				{SonPointer, NewVersion} = btree_update(Fp, Settings, Btree#btree{curNode = NextNode}, Key, Doc, noRoot),
 				NewNode = update_reference(Node, Key, SonPointer),
 				{ok, NewPosNode} = write_node(Fp, Btree, NewNode),
 				if
 					IsRoot == root ->
-						% Atualiza header
+						% Updates header
 						write_header(Fp, Settings, Btree, NewPosNode),
-						ok;
+						{ok, NewVersion};
 					true ->
-						NewPosNode
+						{NewPosNode, NewVersion}
 				end
 			catch
 				error:Error ->
@@ -582,16 +590,16 @@ btree_update(Fp, Settings, Btree = #btree{curNode = PNode}, Key, Doc, IsRoot) ->
 			if
 				IsRoot == root ->
 					write_header(Fp, Settings, Btree, NewLeafPos),
-					ok;	
+					{ok, NewVersion};
 				true ->
-					NewLeafPos
+					{NewLeafPos, NewVersion}
 			end;
 		_V ->
 			error(invalidNodeId)
 	end.
 
 get_doc_pointer_version(Key, [LKey|LKeys], [PosDoc|Docs], [Version|Versions]) ->
-	if 
+	if
 		Key == LKey ->
 			{PosDoc, Version};
 		true ->
@@ -611,21 +619,21 @@ update_list(_, _, []) ->
 	error.
 
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	End of the area for lookup and update functions.
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %Operations with files, nodes and leaves and header
 
 update_key_and_references([Key|Keys], [Pointer, Brother | Pointers], PChildNode, PBrother, DivKey, OldKey, Side) ->
-	if 
+	if
 		(OldKey == Key) and (Side == right) ->
 			{[DivKey|Keys], [PChildNode, PBrother|Pointers]};
 		(OldKey == Key) and (Side == left) and (Pointers == []) ->
@@ -645,11 +653,11 @@ borrow(#node{keys=Keys, nodePointers=Pointers}, #node{keys=[NewDiv|BKeys], nodeP
 borrow(#node{keys=Keys, nodePointers=Pointers}, #node{keys=BKeys, nodePointers=BPointers}, DivKey, left) ->
 	{#node{keys=[DivKey]++Keys, nodePointers=[lists:last(BPointers)]++Pointers}, #node{keys=lists:droplast(BKeys), nodePointers=lists:droplast(BPointers)}, lists:last(BKeys)};
 
-borrow(#leaf{keys=Keys, docPointers=Pointers, versions=Versions}, #leaf{keys=[BorrowedKey, NewDiv|BKeys], docPointers=[BorrowedPointer|BPointers], versions=[BorrowedVersion|BVersions]}, _DivKey, right) -> 
+borrow(#leaf{keys=Keys, docPointers=Pointers, versions=Versions}, #leaf{keys=[BorrowedKey, NewDiv|BKeys], docPointers=[BorrowedPointer|BPointers], versions=[BorrowedVersion|BVersions]}, _DivKey, right) ->
 	{#leaf{keys=Keys++[BorrowedKey], versions=Versions++[BorrowedVersion], docPointers=Pointers++[BorrowedPointer], leafPointer=-1},
 	#leaf{keys=[NewDiv|BKeys], versions=BVersions, docPointers=BPointers, leafPointer=-1}, NewDiv};
 
-borrow(#leaf{keys=Keys, docPointers=Pointers, versions=Versions}, #leaf{keys=BKeys, docPointers=BPointers, versions=BVersions}, _DivKey, left) -> 
+borrow(#leaf{keys=Keys, docPointers=Pointers, versions=Versions}, #leaf{keys=BKeys, docPointers=BPointers, versions=BVersions}, _DivKey, left) ->
 	{#leaf{keys=[lists:last(BKeys)]++Keys, versions=[lists:last(BVersions)]++Versions, docPointers=[lists:last(BPointers)]++Pointers, leafPointer=-1},
 	#leaf{keys=lists:droplast(BKeys), versions=lists:droplast(BVersions), docPointers=lists:droplast(BPointers), leafPointer=-1}, lists:last(BKeys)}.
 
@@ -750,14 +758,14 @@ pretty_printer(Fp, Settings, Btree = #btree{curNode = PNode}) ->
 	file:position(Fp, {bof, PNode}),
 	{ok, Type} = file:read(Fp, 1),
 	case Type of
-		<<?Leaf:1/unit:8>> -> 
+		<<?Leaf:1/unit:8>> ->
 			Leaf = read_leaf(Fp, Settings, Btree),
 			print_leaf(Leaf);
 		<<?Node:1/unit:8>> ->
 			Node = read_node(Fp, Btree),
 			print_node(Node),
 			lists:foreach(fun(X) -> pretty_printer(Fp, Settings, Btree#btree{curNode = X}) end, Node#node.nodePointers);
-		_V -> 
+		_V ->
 			error(invalidNodeId)
 	end.
 
@@ -766,7 +774,7 @@ print_leaf(#leaf{keys = Keys, docPointers = Pointers, versions = Versions}) ->
 	io:format("L ", []),
 	print_leaf(Keys, Pointers, Versions).
 
-print_leaf([], [], []) -> 
+print_leaf([], [], []) ->
 	io:format("~n",[]);
 
 print_leaf([Key|Keys],[Pointer|Pointers], [Version|Versions]) ->
@@ -796,8 +804,8 @@ update_reference([CurKey | Keys], [Pointer|Pointers], NewKey, NewPointer) ->
 	if
 		NewKey < CurKey ->
 			[NewPointer | Pointers];
-		true -> 
-			[Pointer | update_reference(Keys, Pointers, NewKey, NewPointer)]  
+		true ->
+			[Pointer | update_reference(Keys, Pointers, NewKey, NewPointer)]
 	end.
 
 % Discover the child node which a given key belong.
@@ -806,7 +814,7 @@ find_next_node(#node{keys = Keys, nodePointers = Pointers}, Key) ->
 
 find_next_node([], [], _Key) ->
 	erlang:error(notNode);
-find_next_node([], [Pointer], _Key) -> 
+find_next_node([], [Pointer], _Key) ->
 	Pointer;
 find_next_node([CurKey | Keys], [Pointer | Pointers], NewKey) ->
 	if
@@ -815,7 +823,7 @@ find_next_node([CurKey | Keys], [Pointer | Pointers], NewKey) ->
 		true ->
 			find_next_node(Keys, Pointers, NewKey)
 	end.
-	
+
 %header must be in begin of file
 write_header(Fp, #dbsettings{dbname=Name, sizeversion=SizeOfVersion, sizeinbytes=SizeOfSizeOfDoc}, #btree{order=BtreeOrder}, RootPointer) ->
 	file:position(Fp, bof),
@@ -859,7 +867,7 @@ bin_to_leaf(LeafBin, SizeOfVersion, BtreeOrder) ->
 read_leaf(Fp, #dbsettings{sizeversion = SizeOfVersion}, #btree{order=BtreeOrder}) ->
 	{ok, LeafBin} = file:read(Fp, size_of_leaf(SizeOfVersion, BtreeOrder)),
 	bin_to_leaf(LeafBin, SizeOfVersion, BtreeOrder).
-	
+
 
 write_leaf(Fp, #dbsettings{sizeversion=SizeOfVersion}, #btree{order=BtreeOrder}, Leaf) ->
 	{ok, NewPos} = file:position(Fp, eof),
@@ -895,9 +903,9 @@ write_node(Fp, #btree{order=BtreeOrder}, Node) ->
 % Ponteiro a esquerda da chave aponta para o no com elementos menores que a chave, enquato que o ponteiro a direita aponta para
 % o no com elementos maiores ou iguais a ele
 
-leaf_insert(Leaf, BtreeOrder, Key, PosDoc, Version) -> 
+leaf_insert(Leaf, BtreeOrder, Key, PosDoc, Version) ->
 	try insert_ord(Leaf#leaf.keys, Key) of
-		{ok, NewKeys, Index} ->	
+		{ok, NewKeys, Index} ->
 			NewDocPointers = insert_list(Leaf#leaf.docPointers, PosDoc, Index),
 			NewVersions = insert_list(Leaf#leaf.versions, Version, Index),
 			NewLeaf = Leaf#leaf{keys=NewKeys, docPointers = NewDocPointers, versions = NewVersions, leafPointer = -1},
@@ -922,7 +930,7 @@ node_insert_key([], [_Pointer], LChildP, RChildP, NewValue) ->
 	{[NewValue], [LChildP, RChildP]};
 node_insert_key([K|Keys], [P|Pointers], LChildP, RChildP, NewValue) ->
 	if
-		NewValue < K -> 
+		NewValue < K ->
 			{[NewValue, K | Keys], [LChildP, RChildP | Pointers]};
 		true ->
 			{NewKeys, NewPointers} = node_insert_key(Keys, Pointers, LChildP, RChildP, NewValue),
@@ -966,7 +974,7 @@ insert_ord([X|L], V, I) ->
 			 error(keyInUse);
 		V < X ->
 			{ok, [V, X|L], I};
-		true -> 
+		true ->
 			try insert_ord(L, V, I+1) of
 				{ok, NewL, Index} ->
 					{ok, [X|NewL], Index}
@@ -985,7 +993,7 @@ insert_list([X|L], V, Index) ->
 gen_bin([X|[]], ElementSize) ->
 	<<X:ElementSize/unit:8>>;
 
-gen_bin([X|L], ElementSize) -> 
+gen_bin([X|L], ElementSize) ->
 	Rest = gen_bin(L, ElementSize),
 	<<X:ElementSize/unit:8, Rest/binary>>.
 

@@ -61,7 +61,7 @@ init(_Args) ->
 handle_call({get, Subject}, _From, State) ->
     case ets:lookup(store, Subject) of 
         []                 -> lager:warning("Tried to get subject ~p, but it doesn't exist.~n", [Subject]),
-                              {reply, {warning, not_found}, State};
+                              {reply, {warning, key_not_found}, State};
         [{Subject, Value}] -> {reply, {ok, Value}, State}
     end;
 
@@ -80,7 +80,7 @@ handle_call({update, {Subject, Params}}, _From, State) ->
     %% Verifies if the subject store exists.
     case ets:lookup(store, Subject) of
         []                 -> lager:warning("Tried to get subject ~p, but it doesn't exist.~n", [Subject]),
-                              {reply, {warning, not_found}, State};
+                              {reply, {warning, key_not_found}, State};
         [{Subject, Store}] -> ets:delete(store, Subject),
                               {ok, NewStore} = update_subject(Params, Store),
                               Result = ets:insert(store, {Subject, NewStore}),
@@ -101,8 +101,10 @@ handle_call({sync, TNode}, _From, State) ->
         {error, Reason}          -> lager:error("Could not sync with node ~p: ~p", [TNode, Reason]),
                                     {reply, {error, Reason}, State}
     catch
-        _Class:Err -> lager:error("Could not sync with node ~p: ~p", [TNode, Err]),
-                      {reply, {error, Err}, State}
+        exit:{Err, _Details} -> lager:error("Could not sync with node ~p: ~p", [TNode, Err]),
+                                {reply, {error, Err}, State}; 
+        _Class:Err ->           lager:error("Could not sync with node ~p", [TNode]),
+                                {reply, {error, Err}, State}
     end;
 
 %% Handles "handle_sync" call.
@@ -152,8 +154,6 @@ diff([{Key, LStore}|Rest], RemoteStore, LocalChanges, RemoteChanges) ->
                   diff(Rest, RemoteStore, LocalChanges, NRemoteChanges);
         RStore -> {LStoreDiff, RStoreDiff} = store_diff(LStore, RStore),
                   NRemoteStore = proplists:delete(Key, RemoteStore),
-                  lager:warning("Local  > ~p;~n", [LStoreDiff]),
-                  lager:warning("Remote > ~p;~n", [RStoreDiff]),
                   NLocalChanges = case LStoreDiff of
                       []    -> LocalChanges;
                       LDiff -> lists:append(LocalChanges, [{Key, LDiff}])
@@ -234,6 +234,7 @@ is_observer_node(Node) ->
     [Name|_Host] = string:split(NodeName, "@"),
     Name =:= "observer".
 
+iterate_sync([]) -> ok;
 iterate_sync(Nodes) ->
     TNode = adb_utils:choose_randomly(Nodes),
     Rest = [X || X <- Nodes, X =/= TNode],

@@ -24,14 +24,15 @@ start_child() ->
 %%=============================================================================
 
 init(Args) ->
-    {ok, Persistence} = setup_persistence(Args),
-    {ok, PersistNames} = get_vnode_names(),
-    Cores = [#{id       => Name, 
-               start    => {adb_persistence, start_link, [Persistence, Name]},
-               restart  => permanent, 
-               shutdown => brutal_kill, 
-               type     => worker, 
-               modules  => [adb_persistence]} || Name <- PersistNames],
+    {ok, PersistModule} = setup_persistence(Args),
+    {ok, VNodes} = adb_dist_store:get_config(vnodes),
+    PersistSups = [get_persist_sup_spec(Id, PersistModule) || Id <- lists:seq(1, VNodes)],
+    ServerSup = #{id       => adb_server_sup,
+                  start    => {adb_server_sup, start_link, []},
+                  restart  => permanent,
+                  shutdown => infinity,
+                  type     => supervisor,
+                  modules  => [persist_sup]},
     VNodeServer = #{id       => adb_vnode_server,
                     start    => {adb_vnode_server, start_link, []},
                     restart  => permanent,
@@ -39,7 +40,7 @@ init(Args) ->
                     type     => worker,
                     modules  => [adb_vnode_server]},
     RestartStrategy = {one_for_one, 1000, 3600},
-    {ok, {RestartStrategy, [VNodeServer|Cores]}}.
+    {ok, {RestartStrategy, [VNodeServer, ServerSup | PersistSups]}}.
 
 %%==============================================================================
 %% Internal functions
@@ -48,18 +49,19 @@ init(Args) ->
 setup_persistence(Args) ->
     lager:info("Setting up the persistence module.", []),
     case proplists:get_value(persistence, Args) of
-	hanoidb -> lager:info("Starting HanoiDB..."),
+    hanoidb -> lager:info("Starting HanoiDB..."),
                {ok, hanoidb_persistence};
     ets     -> lager:info("Starting ETS..."),
-		       {ok, ets_persistence};
-	_       -> lager:info("Starting ADBTree..."),
-		       {ok, adbtree_persistence}
+               {ok, ets_persistence};
+    _       -> lager:info("Starting ADBTree..."),
+               {ok, adbtree_persistence}
     end.
+
+get_persist_sup_spec(VNodeId, Persistence) ->
+    #{id       => adb_utils:get_vnode_process(persist_sup, VNodeId), 
+      start    => {persist_sup, start_link, [Persistence, VNodeId]}, 
+      restart  => permanent, 
+      shutdown => infinity, 
+      type     => supervisor, 
+      modules  => [persist_sup]}.
     
-get_vnode_names() ->
-    {ok, VNodes} = adb_dist_store:get_config(vnodes),
-    Names = lists:map(fun(Id) -> 
-        {ok, Name} = adb_utils:get_vnode_name(Id, VNodes), 
-        Name 
-    end, lists:seq(1, VNodes)),
-    {ok, Names}.
