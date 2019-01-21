@@ -5,6 +5,8 @@
 
 -import(adb_doc_list, [get_list/1]).
 
+-import(adb_utils, [get_database_name/2, get_vnode_name/1]).
+
 % start(DBName) ->
 % 	case Fp = file:open(DBName++"Index.adb", [read]) of
 % 		T = {error, enoent} ->
@@ -111,7 +113,11 @@ connect(DBName) ->
 
 list_keys(DBName) ->
 	LeafPosList = adb_doc_list:get_list(DBName),
-	NameIndex = DBName++"Index.adb",
+	% Code to be removed when receiving the right name from persistance
+	VNodeName = get_vnode_name(1),
+    RealDBName = get_database_name(DBName, VNodeName),
+    NameIndex = RealDBName++"Index.adb",
+	%
 	{ok, File} = file:open(NameIndex, [read, binary]),
 	{Settings, Btree} = get_header(File),
 	lists:concat(read_keys(File, Settings, Btree, LeafPosList)).
@@ -188,7 +194,11 @@ compress_index([PNode | NodePointers], FpOld, Btree, FpNew, Settings) ->
 
 doc_count(DBName) ->
 	LeafList = get_list(DBName),
-	NameIndex = DBName++"Index.adb",
+	% Code to be removed when receiving the right name from persistance
+	VNodeName = get_vnode_name(1),
+    RealDBName = get_database_name(DBName, VNodeName),
+    NameIndex = RealDBName++"Index.adb",
+	%
 	{ok, Fp} = file:open(NameIndex, [read, binary]),
 	{Settings, Btree} = get_header(Fp),
 	DocCount = doc_count(LeafList, Fp, Settings, Btree),
@@ -210,7 +220,11 @@ doc_count([Leaf | Tail], Fp, Settings, Btree) ->
 
 doc_list(DBName) ->
 	LeafList = get_list(DBName),
-	NameIndex = DBName++"Index.adb",
+	% Code to be removed when receiving the right name from persistance
+	VNodeName = get_vnode_name(1),
+    RealDBName = get_database_name(DBName, VNodeName),
+    NameIndex = RealDBName++"Index.adb",
+	%
 	{ok, Fp} = file:open(NameIndex, [read, binary]),
 	{Settings, Btree} = get_header(Fp),
 	DocList = lists:flatten(doc_list(LeafList, Fp, Settings, Btree)),
