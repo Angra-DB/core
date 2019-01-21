@@ -169,7 +169,7 @@ handle_cast({mr_worker}, #nodeInfo{database = Database, workerTask = Id}) ->
 			log("Worker start task."),
 			% Code to be removed when receiving the right name from persistance
 			VNodeName = get_vnode_name(1),
-			RealDBName = get_database_name(DBName, VNodeName),
+			RealDBName = get_database_name(Database, VNodeName),
 			NameIndex = RealDBName++"Index.adb",
 			%
 			{ok, Fp} = file:open(NameIndex, [read, binary]),
