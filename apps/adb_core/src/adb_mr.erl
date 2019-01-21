@@ -42,6 +42,7 @@
 -export([start/0, start_task/2, quit/0, gen_key/0]).
 
 -import(adbtree, [get_header/1, read_doc/2, doc_count/1, doc_list/1]).
+-import(adb_utils, [get_database_name/2, get_vnode_name/1]).
 -import(jsone, [decode/2]).
 
 %-import(adb_mr_tests, [map1/1]).
@@ -166,7 +167,11 @@ handle_cast({mr_worker}, #nodeInfo{database = Database, workerTask = Id}) ->
 		try
 			[{_, WorkerTask = #workerTask{manager = Manager, documentIndexList = DocIndexList, modules = #taskModules{main = MainModule = {ModuleName, _, _}, dependencies = Dependencies}}} | _] = ets:lookup(?WorkerTasksTable, Id),
 			log("Worker start task."),
-			NameIndex = Database++"Index.adb",
+			% Code to be removed when receiving the right name from persistance
+			VNodeName = get_vnode_name(1),
+			RealDBName = get_database_name(DBName, VNodeName),
+			NameIndex = RealDBName++"Index.adb",
+			%
 			{ok, Fp} = file:open(NameIndex, [read, binary]),
 			{Settings, _} = get_header(Fp),
 			{ok, DocList} = doc_list(Database),
