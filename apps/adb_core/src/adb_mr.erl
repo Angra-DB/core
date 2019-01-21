@@ -34,7 +34,7 @@
 	terminate/2,
 	simpleCall/1,
 	mapTest/1,
-	task1/0,
+	task1/1,
 	createIndexList/2
     % code_change/3
 ]).
@@ -473,9 +473,9 @@ mapTest(Json) ->
 	Doc = decode(Json, [{object_format, proplist}]),
 	adb_mr_tests:map(Doc).
 
-task1() ->
+task1(DBName) ->
 	Module = adb_mr_tests,
 	{_Module, Binary, Filename} = code:get_object_code(Module),
 	MrModules = #taskModules{main = {Module, Filename, Binary}, dependencies = []},
-	Res = gen_server:call(?MODULE, {mr_task, "Test", MrModules}),
+	Res = gen_server:call(?MODULE, {mr_task, DBName, MrModules}),
 	{ok, Res}.
