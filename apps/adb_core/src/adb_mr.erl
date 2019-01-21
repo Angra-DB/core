@@ -287,7 +287,7 @@ get_document(Index, DocList, Settings) ->
 	{_, DocPos} = lists:nth(Index, DocList),
 	log("Worker -- DocPos"),
 	%log(DocPos),
-	{ok, _, Doc} = read_doc(DocPos, Settings),
+	{ok, Doc, _} = read_doc(DocPos, Settings),
 	log("Worker -- Doc."),
 	log(Doc),
 	% Parsing the document to proplist.
