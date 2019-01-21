@@ -40,7 +40,7 @@ create_db(DbName) ->
 connect(DbName) ->
   gen_server:call(format_name(DbName), {connect}).
 save(DbName, Value, Key) ->
-  gen_server:call(format_name(DbName), {save, {Value, Key}}, 60000).
+  gen_server:call(format_name(DbName), {save, {Value, Key}}, infinity).
 update(DbName, Value, Key) ->
   gen_server:call(format_name(DbName), {update, {Value, Key}}).
 delete(DbName, Key) ->

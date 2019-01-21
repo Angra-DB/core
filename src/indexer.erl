@@ -36,7 +36,7 @@
 %%%===================================================================
 
 save(DbName, Value, Key, Version) ->
-  gen_server:call(format_name(DbName), {save, {Value, Key, Version}}, 60000).
+  gen_server:call(format_name(DbName), {save, {Value, Key, Version}}, infinity).
 
 update(DbName, Value, Key, Version) ->
   gen_server:call(format_name(DbName), {update, {Value, Key, Version}}).
@@ -99,7 +99,8 @@ handle_call(Request, _From, State = #state {db_name = DbName, index = Index}) ->
       { ok, Tokens } = token_parser:receive_json(Value),
       AddedIndex = adbindexer:update_mem_index(Tokens, Key, Version, Index, DbName),
       Reply = ok,
-      NewIndex = flush_if_full(AddedIndex, State);
+      NewIndex = flush_if_full(AddedIndex, State),
+      lager:info("Flushed Index");
     {update, {Value, Key, Version}} ->
       { ok, Tokens } = token_parser:receive_json(Value),
       lager:info("Saving document: ~p, with tokens ~p", [Value, Tokens]),
@@ -148,7 +149,7 @@ handle_info(_Info, State) ->
 %% @end
 %%--------------------------------------------------------------------
 terminate(_Reason, #state {index = Index, db_name = DbName}) ->
-  save_index(Index, DbName),
+  % save_index(Index, DbName),
   ok.
 
 %%--------------------------------------------------------------------
@@ -177,6 +178,7 @@ flush_if_full(AddedIndex, #state {db_name = DbName, index_max_size = MaxSize}) -
   case Size > MaxSize of
     true ->
       lager:info("~n~nFlushing Index~n~n"),
+      lager:info("~n~nNTerms: ~p~n~n", [length(AddedIndex)]),
       Result = save_index(AddedIndex, DbName),
       lager:info("~n~nFlush Succeeded~n~n"),
       Result;
@@ -188,10 +190,12 @@ save_index(Index, DbName) ->
   IndexName = DbName++"Index.adbi",
   case file:open(IndexName, [read, binary]) of
     {error, enoent} ->
+      lager:info("Writing Index"),
       adbindexer:save_index(Index, DbName, fun adbindexer:hash/1),
       [];
     {ok, Fp} ->
       file:close(Fp),
+      lager:info("Updating Index"),
       adbindexer:update_index(Index, DbName, fun adbindexer:hash/1),
       []
   end.

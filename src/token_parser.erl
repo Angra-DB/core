@@ -30,6 +30,8 @@ json_parser(<<Element/binary>>, Count) ->
   ElementList = string:tokens(binary_to_list(Element), " "),
   tokenize_string(ElementList, Count);
 
+% [[{<<"teste">>,<<"YO">>}],[{<<"teste">>,<<"YO">>}]]
+
 json_parser([], _) ->
   [];
 json_parser([Head | Tail], Count) when is_atom(Head) ->
@@ -49,7 +51,14 @@ json_parser([{<<Header/binary>>, Content} | Tail], Count) ->
   ContentList = json_parser(Content, InitField),
   FinalHeaderTokens = lists:map(fun(Token) -> Token#token_ext{fieldEnd = InitField+length(ContentList)-1} end, HeaderTokenList),
   NextPos = InitField+length(ContentList),
-  lists:append([FinalHeaderTokens, ContentList, json_parser(Tail, NextPos)]).
+  lists:append([FinalHeaderTokens, ContentList, json_parser(Tail, NextPos)]);
+
+json_parser([Head | Tail], Count) when is_list(Head) -> 
+  Parsed = json_parser(Head, Count),
+  lists:append(Parsed, json_parser(Tail, Count+length(Parsed)));
+  
+json_parser(_, _) ->
+  throw(invalid_json).
 
 
 tokenize_head_list([], _, _) ->

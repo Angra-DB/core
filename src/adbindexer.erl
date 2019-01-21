@@ -145,6 +145,8 @@ read_term(Fp, DbName) ->
 	case file:read(Fp, ?SizeOfWord + 2*?SizeOfCount + ?SizeOfPointer) of
 		{ok, <<WordBin:?SizeOfWord/binary-unit:8, NormalPostings:?SizeOfCount/unit:8, ExtPostings:?SizeOfCount/unit:8, NextTerm:?SizeOfPointer/unit:8>>} ->
 			Word = bin_to_word(WordBin),
+
+			% lager:info("Reading ~p normal postings and ~p extended postings of word ~p", [NormalPostings, ExtPostings, WordBin]),
 			{ok, <<PostingsBin/binary>>} =  file:read(Fp, (NormalPostings*?SizeOfPosting) + (ExtPostings*?SizeOfExtPosting)),
 			{Postings, {NormalCounter, ExtCounter}} = bin_to_postings(PostingsBin, {NormalPostings, ExtPostings}, DbName),
 			{ok, #term{word = Word, normalPostings = NormalCounter, extPostings = ExtCounter, nextTerm = NextTerm, postings = Postings}};
@@ -156,6 +158,7 @@ save_term(Term, Fp, HashTable, HashFunction, DbName) ->
 	{ok, Pointer} = file:position(Fp, cur),
 	{NewNextTerm, Hash} = hash_table_get(Term#term.word, HashTable, HashFunction),
 	NewHashTable = hash_table_insert(Pointer, Hash, HashTable),
+	% lager:info("Saving term ~p", [Term]),
 	NewTermBin = term_to_bin(Term#term{nextTerm = NewNextTerm}, DbName),
 	file:write(Fp, NewTermBin),
 	NewHashTable.
@@ -180,10 +183,13 @@ save_index(Index, DBName, HashFunction) ->
 	file:write(Fp, Header),
 	HashTable = lists:duplicate(?HashSize, 0),
 	NewHashTable = write_index(Index, HashTable, Fp, HashFunction, DBName),
+	% lager:info("written"),
 	NewHashTableBin = hashtable_to_bin(NewHashTable),
+	% lager:info("hashtableBin ~p", [NewHashTableBin]),
 	NewHeader = <<NewHashTableBin/binary>>,
 	file:position(Fp, bof),
 	file:write(Fp, NewHeader),
+	file:close(Fp),
 	clear_versions(DBName),
 	clear_deletions(DBName).
 
@@ -196,8 +202,20 @@ write_index([Term | Index], HashTable, Fp, HashFunction, DbName) ->
 
 update_index(Index, DBName, HashFunction) ->
 	IndexName = DBName++"Index.adbi",
-	{ok, FpOld} = file:open(IndexName, [read, write, binary]),
-	{ok, FpNew} = file:open("."++IndexName, [read, write, binary]),
+	FpOld = case file:open(IndexName, [read, write, binary, {read_ahead, 1000000}]) of
+		{ok, FpO} ->
+			FpO;
+		FpOldError ->
+			lager:error("Unexpected error while opening old file ~p", [FpOldError]),
+			throw(FpOldError)
+	end,
+	FpNew = case file:open("."++IndexName, [write, binary, {delayed_write, 1000000, 5}]) of
+		{ok, FpN} ->
+			FpN;
+		FpNewError ->
+			lager:error("Unexpected error while opening new file  ~p", [FpNewError]),
+			throw(FpNewError)
+	end,	
 	HashTableBin = <<0:(?HashSize)/unit:64>>,
 	Header = <<HashTableBin/binary>>,
 	file:write(FpNew, Header),
@@ -208,10 +226,10 @@ update_index(Index, DBName, HashFunction) ->
 	NewHeader = <<NewHashTableBin/binary>>,
 	file:position(FpNew, bof),
 	file:write(FpNew, NewHeader),
-	file:close(FpOld),
-	file:close(FpNew),
-	file:delete(IndexName),
-	file:rename("."++IndexName, IndexName),
+	ok = file:close(FpOld),
+	ok = file:close(FpNew),
+	ok = file:delete(IndexName),
+	ok = file:rename("."++IndexName, IndexName),
 	clear_versions(DBName),
 	clear_deletions(DBName).
 
@@ -235,6 +253,7 @@ merge_index([MemTerm | Index], DocTerm, HashTable, FpOld, FpNew, HashFunction, D
 merge_index(MemIndex, HashTable, FpOld, FpNew, HashFunction, DbName) ->
 	case read_term(FpOld, DbName) of
 		{ok, DocTerm} ->
+			% lager:info("Read term ~p", [DocTerm]),
 			merge_index(MemIndex, DocTerm, HashTable, FpOld, FpNew, HashFunction, DbName);
 		eof ->
 			merge_index(MemIndex, HashTable, FpNew, HashFunction, DbName)
@@ -444,7 +463,9 @@ start_table(DbName) ->
 	TableName = format_versions_table_name(DbName),
 	ets:new(format_versions_table_name(DbName), [set, protected, named_table]),
 	{ok, Fp} = file:open(DbName++"Versions.adb", [read, write, binary]),
-	initialize_table(Fp, TableName).
+	Result = initialize_table(Fp, TableName),
+	file:close(Fp),
+	Result.
 
 initialize_table(Fp, TableName) ->
 	{ok, Position} = file:position(Fp, cur),
@@ -509,7 +530,9 @@ start_deletion_table(DbName) ->
 	TableName = format_deletions_table_name(DbName),
 	ets:new(TableName, [set, protected, named_table]),
 	{ok, Fp} = file:open(DbName++"Deletions.adb", [read, write, binary]),
-	initialize_deletion_table(Fp, TableName).
+	Result = initialize_deletion_table(Fp, TableName),
+	file:close(Fp),
+	Result.
 
 initialize_deletion_table(Fp, TableName) ->
 	{ok, Position} = file:position(Fp, cur),
