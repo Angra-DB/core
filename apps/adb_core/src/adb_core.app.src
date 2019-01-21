@@ -11,8 +11,8 @@
          {max_index_size, 1000000},      %% Maximum size of the memory index in bytes
          {distribution, dist},           %% {distribution, dist | mono}
          {partition, full},              %% {partition, full | {consistent, <hash_func>}}
-         {replication, 1},               %% Number of copies
+         {replication, 2},               %% Number of copies
          {write_quorum, 2},              %% Number of successful writes needed to consider the operation valid.
          {read_quorum, 2},               %% Number of successful reads needed to consider the operation valid.
-         {vnodes, 1},                    %% Number of vnodes
+         {vnodes, 2},                    %% Number of vnodes
          {gossip_interval, 60000}]}}]}.  %% Gossip Interval (milliseconds)
