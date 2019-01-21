@@ -4,6 +4,7 @@
 -compile(export_all).
 
 -import(adbtree, [get_header/1, read_leaf/3, read_node/2]).
+-import(adb_utils, [get_database_name/2, get_vnode_name/1]).
 
 -define(Size, 8).
 
@@ -14,7 +15,9 @@ generate_list(DBName, List) ->
     ok.
 
 generate_list(DBName) ->
-    NameIndex = DBName++"Index.adb",
+    VNodeName = get_vnode_name(1),
+    RealDBName = get_database_name(DBName, VNodeName),
+    NameIndex = RealDBName++"Index.adb",
     {ok, Fp} = file:open(NameIndex, [read, binary]),
     {Settings, Btree} = get_header(Fp),
     LeafPosList = generate_list(Fp, Btree, Settings),
