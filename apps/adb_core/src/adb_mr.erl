@@ -111,6 +111,7 @@ handle_call({mr_ping}, _, State = #nodeInfo{status = Status, database = Database
 
 handle_call({mr_task, Database, Modules = #taskModules{main = MainModule, dependencies = Dependencies}}, _, State = #nodeInfo{status = Status}) ->
 	log("Major task received."),
+	log(erlang:system_time(millisecond)),
     case Status of
         idle ->
 			log("Idle manager."),
@@ -217,6 +218,7 @@ handle_cast({task_done, Result = #taskResult{node = Node}}, NodeInfo = #nodeInfo
 			FinalManagementTask = ManagementTask#managementTask{result = FinalResult, modules = ?TaskDone},
 			ets:insert(?ManagerTasksTable, {Id, FinalManagementTask}),
 			log("Manager - Results merged."),
+			log(erlang:system_time(millisecond)),			
 			NewState = #nodeInfo{status = idle, database = none, managementTask = none, workerTask = none, lastResult = FinalResult};
 		_ ->
 			log("Manager - Nodes need to send results."),
