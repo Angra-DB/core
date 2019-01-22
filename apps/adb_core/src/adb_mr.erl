@@ -209,7 +209,7 @@ handle_cast({task_done, Result = #taskResult{node = Node}}, NodeInfo = #nodeInfo
 	[ { _, ManagementTask = #managementTask{modules = #taskModules{main = {ModuleName, _, _}}, tasksDistributed = DistributedTasks}} | _ ] = ets:lookup(?ManagerTasksTable, Id),
 	%log("Manager - Result inserted on table."),
 	%log("Manager - Tasks Distributed.ets:insert(?TaskResultsTable, {Node, Result}),"),
-	log(DistributedTasks),
+	%log(DistributedTasks),
 	NumOfTasks = length(DistributedTasks),
 	case length(Results) of
 		NumOfTasks ->
