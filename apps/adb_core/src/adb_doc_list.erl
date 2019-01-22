@@ -44,7 +44,7 @@ generate_list([], _Fp, _Btree, _Settings)->
     {ok, []};
 generate_list([PNode | NodePointers], Fp, Btree, Settings) ->
     {ok, NewPointers} = generate_list(NodePointers, Fp, Btree, Settings),
-    {ok, NewPos} = generate_list(Fp, Btree#btree{curNode=PNode}, Fp, Settings),
+    {ok, NewPos} = generate_list(Fp, Btree#btree{curNode=PNode}, Settings),
     {ok, [NewPos | NewPointers]}.
 
 insert(DBName, OldPointer, NewPointers) ->
