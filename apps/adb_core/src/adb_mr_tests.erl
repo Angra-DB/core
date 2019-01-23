@@ -39,4 +39,11 @@ word_count([{<<Header/binary>>, Content} | Tail]) ->
   HeadList = string:tokens(binary_to_list(Header), " "),
   HeadLength = length(HeadList),
   ContentLength = word_count(Content),
-  HeadLength + ContentLength + word_count(Tail).
+  HeadLength + ContentLength + word_count(Tail);
+
+word_count([Head | Tail]) when is_list(Head) -> 
+  HeadCount = word_count(Head),
+  HeadCount + word_count(Tail);
+  
+word_count(_) ->
+  throw(invalid_json).

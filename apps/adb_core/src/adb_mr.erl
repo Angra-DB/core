@@ -438,7 +438,7 @@ adb_map([], _, _, _) ->
 adb_map([Index | Tail], Module, DocList, Settings) ->
 	log("Worker -- Starting Map"),
 	Doc = get_document(Index, DocList, Settings),
-	%log("Worker -- Doc got."),
+	log("Worker -- Doc got."),
 	%log(Module),
 	try Module:map(Doc) of
 		MapResult ->
