@@ -40,6 +40,20 @@ services:
     ports: 
       - 1240-1242:1234-1236
 
+  node-d:
+    image: angra:latest
+    environment: 
+      - ANGRA_NAME=d@angra4.com
+      - ANGRA_COOKIE=teste
+      - ADB_ACCESS=a@angra1.com
+    depends_on: 
+      - "node-a"
+    container_name: angra4.com
+    networks:
+      - angra_lan
+    ports: 
+      - 1243-1245:1234-1236
+
 networks:
   angra_lan:
     driver: bridge

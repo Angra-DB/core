@@ -11,7 +11,12 @@
     get_vnode_process/2, 
     get_vnode_process/3, 
     get_database_name/2, 
-    sort_ring_info/1
+    sort_ring_info/1,
+    valid_nodes/0
+]).
+
+-define(NODE_BLACK_LIST, [
+    'observer@127.0.0.1'
 ]).
 
 get_env(EnvVar) ->
@@ -71,3 +76,8 @@ sort_ring_info(RingInfo) ->
     Pred = fun({_, {ANum, ADen}}, {_, {BNum, BDen}}) -> (ANum / ADen) =< (BNum / BDen) end,
     Sorted = lists:sort(Pred, RingInfo),
     {ok, Sorted}.
+
+
+
+valid_nodes() ->
+    lists:subtract(nodes(), ?NODE_BLACK_LIST).

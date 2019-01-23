@@ -27,7 +27,7 @@ stop() ->
 %% ============================================================================
 
 init(_Args) ->
-    lager:info("Initializing adb_vnode server.~n"),
+    lager:info("Initializing adb_vnode server."),
     {ok, [], 0}.
 
 handle_call({process_request, {TargetVNode, Args, replicate}}, _From, State) ->

@@ -40,19 +40,18 @@ create(Subject, Value) ->
 update(Subject, Changes) ->
     gen_server:call(?SERVER, {update, {Subject, Changes}}).
 
-sync() -> sync(nodes()).
+sync() -> sync(adb_utils:valid_nodes()).
 
 sync([]) -> {warning, no_remote_nodes};
 sync(Nodes) ->
-    NotObsNodes = [X || X <- Nodes, not is_observer_node(X)],
-    iterate_sync(NotObsNodes).
+    iterate_sync(Nodes).
 
 %% ============================================================================
 %% gen_server callbacks
 %% ============================================================================
 
 init(_Args) ->
-    lager:info("Initializing adb_gossip_server.~n"),
+    lager:info("Initializing adb_gossip_server."),
     %% Create ets store to store gossip state.
     Store = ets:new(store, [set, public, named_table]),
     {ok, #state{store = Store}, 0}.
@@ -60,7 +59,7 @@ init(_Args) ->
 %% Handles "get" call.
 handle_call({get, Subject}, _From, State) ->
     case ets:lookup(store, Subject) of 
-        []                 -> lager:warning("Tried to get subject ~p, but it doesn't exist.~n", [Subject]),
+        []                 -> lager:warning("Tried to get subject ~p, but it doesn't exist.", [Subject]),
                               {reply, {warning, key_not_found}, State};
         [{Subject, Value}] -> {reply, {ok, Value}, State}
     end;
@@ -71,7 +70,7 @@ handle_call({create, {Subject, Value, UpCallbackList, CmpCallback}}, _From, Stat
     case ets:lookup(store, Subject) of
         []       -> NState = create_subject({Subject, Value, UpCallbackList, CmpCallback}, store),
                     {reply, {ok, Subject}, NState};
-        [_Value] -> lager:warning("Tried to create a subject ~p, but it already exist.~n", [Subject]),
+        [_Value] -> lager:warning("Tried to create a subject ~p, but it already exist.", [Subject]),
                     {reply, {warning, already_exists}, State}
     end;
 
@@ -79,7 +78,7 @@ handle_call({create, {Subject, Value, UpCallbackList, CmpCallback}}, _From, Stat
 handle_call({update, {Subject, Params}}, _From, State) ->
     %% Verifies if the subject store exists.
     case ets:lookup(store, Subject) of
-        []                 -> lager:warning("Tried to get subject ~p, but it doesn't exist.~n", [Subject]),
+        []                 -> lager:warning("Tried to get subject ~p, but it doesn't exist.", [Subject]),
                               {reply, {warning, key_not_found}, State};
         [{Subject, Store}] -> ets:delete(store, Subject),
                               {ok, NewStore} = update_subject(Params, Store),
@@ -89,7 +88,7 @@ handle_call({update, {Subject, Params}}, _From, State) ->
 
 %% Handles "sync" call.
 handle_call({sync, TNode}, _From, State) ->
-    lager:info("Syncing with ~p.~n", [TNode]),
+    lager:info("Syncing with ~p.", [TNode]),
     Matches = ets:match(store, '$1'),
     LocalStore = [X || [X] <- Matches],
     TModule = {adb_gossip_server, TNode},
@@ -223,16 +222,11 @@ create_subject({Subject, Value, UpCallbackList, CmpCallback}, Store) ->
 update_subject([], Store)                  -> {ok, Store};
 update_subject([{Key, Value}|Rest], Store) -> 
     case maps:get(Key, Store, none) of
-        none   -> lager:warning("The key ~p was not found store.~n", [Key]),
+        none   -> lager:warning("The key ~p was not found store.", [Key]),
                   {warning, key_not_found};
         _Value -> NewStore = maps:update(Key, Value, Store),
                   update_subject(Rest, NewStore)
     end.
-
-is_observer_node(Node) ->
-    NodeName = atom_to_list(Node),
-    [Name|_Host] = string:split(NodeName, "@"),
-    Name =:= "observer".
 
 iterate_sync([]) -> ok;
 iterate_sync(Nodes) ->

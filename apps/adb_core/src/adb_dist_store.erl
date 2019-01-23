@@ -57,7 +57,7 @@ set_ring_info(Node, Value) when is_atom(Node) ->
 %%=============================================================================
 
 init(Config) ->
-    lager:info("Initializing adb_dist store.~n"),
+    lager:info("Initializing adb_dist store."),
     %% Create stores.
     ConfigStore = ets:new(config, [set, public, named_table]),
     RingInfoStore = ets:new(ring, [set, public, named_table]),
