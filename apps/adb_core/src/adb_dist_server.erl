@@ -60,13 +60,13 @@ forward_request(Command, Args) when is_atom(Command) ->
 %%=============================================================================
 
 init([]) ->
-    lager:info("Initializing adb_dist server.~n"),
+    lager:info("Initializing adb_dist server."),
     RingId = get_or_create_ring_id(),
     adb_gossip_server:sync(),
     adb_dist_store:set_ring_info(node(), RingId),
     {ok, RingInfo} = adb_dist_store:get_ring_info(),
     adb_gossip_server:create(ring_info, RingInfo, fun store_ring_info/1, fun compare_ring_info/2),
-    lager:info("Ring ID defined as '~p'.~n", [RingId]),
+    lager:info("Ring ID defined as '~p'.", [RingId]),
     {ok, none, 0}.
 
 handle_call({forward_request, {Command, Args}}, _From, State) ->

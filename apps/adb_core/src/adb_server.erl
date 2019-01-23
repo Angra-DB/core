@@ -82,7 +82,7 @@ stop() ->
 %%%===========================================
 
 init([LSock, VNodeId]) ->
-    lager:info("Server initilized at VNode #~p. ~n", [VNodeId]),
+    lager:info("Server initilized at VNode #~p.", [VNodeId]),
     {ok, #state{lsock = LSock, vnode_id = VNodeId}, 0}.
 
 handle_call(Msg, _From, State) ->

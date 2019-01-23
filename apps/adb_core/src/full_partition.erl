@@ -8,7 +8,7 @@
 %%=============================================================================
 
 create_db(Database) ->
-    Targets = [node()|nodes()],
+    Targets = [node()|adb_utils:valid_nodes()],
     Request = {process_request, {all, {create_db, Database, Database}}},
     ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
     case gen_partition:validate_response(ResponseStats, length(Targets), write) of
@@ -19,7 +19,7 @@ create_db(Database) ->
     end.
 
 connect(Database) ->
-    Targets = [node()|nodes()],
+    Targets = [node()|adb_utils:valid_nodes()],
     Request = {process_request, {all, {connect, Database, Database}}},
     ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
     case gen_partition:validate_response(ResponseStats, length(Targets), read) of
@@ -29,7 +29,7 @@ connect(Database) ->
     end.
 
 save(Database, Key, {Size, Doc}) ->
-    Targets = [node()|nodes()],
+    Targets = [node()|adb_utils:valid_nodes()],
     Request = {process_request, {all, {save_key, Database, {Key, Size, Doc}}}},
     ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
     case gen_partition:validate_response(ResponseStats, length(Targets), read) of
@@ -39,7 +39,7 @@ save(Database, Key, {Size, Doc}) ->
     end.
 
 lookup(Database, Key) ->
-    Targets = [node()|nodes()],
+    Targets = [node()|adb_utils:valid_nodes()],
     Request = {process_request, {all, {lookup, Database, Key}}},
     ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
     case gen_partition:validate_response(ResponseStats, length(Targets), read) of
@@ -49,7 +49,7 @@ lookup(Database, Key) ->
     end.
 
 bulk_lookup(Database, Keys) ->
-    Targets = [node()|nodes()],
+    Targets = [node()|adb_utils:valid_nodes()],
     Request = {process_request, {all, {bulk_lookup, Database, Keys}}},
     ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
     case gen_partition:validate_response(ResponseStats, length(Targets), read) of
@@ -59,7 +59,7 @@ bulk_lookup(Database, Keys) ->
     end.
 
 update(Database, Key, {Size, Doc}) ->
-    Targets = [node()|nodes()],
+    Targets = [node()|adb_utils:valid_nodes()],
     Request = {process_request, {all, {update, Database, {Key, Size, Doc}}}},
     ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
     case gen_partition:validate_response(ResponseStats, length(Targets), read) of
@@ -69,7 +69,7 @@ update(Database, Key, {Size, Doc}) ->
     end.
 
 delete(Database, Key) ->
-    Targets = [node()|nodes()],
+    Targets = [node()|adb_utils:valid_nodes()],
     Request = {process_request, {all, {delete, Database, Key}}},
     ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
     case gen_partition:validate_response(ResponseStats, length(Targets), read) of
@@ -79,7 +79,7 @@ delete(Database, Key) ->
     end.
 
 query_term(Database, Term) ->
-    Targets = [node()|nodes()],
+    Targets = [node()|adb_utils:valid_nodes()],
     Request = {process_request, {all, {query_term, Database, Term}}},
     ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
     case gen_partition:validate_response(ResponseStats, length(Targets), write) of
@@ -89,7 +89,7 @@ query_term(Database, Term) ->
     end.
 
 query(Database, Query) ->
-    Targets = [node()|nodes()],
+    Targets = [node()|adb_utils:valid_nodes()],
     Request = {process_request, {all, {query, Database, Query}}},
     ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
     case gen_partition:validate_response(ResponseStats, length(Targets), write) of

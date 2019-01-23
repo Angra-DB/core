@@ -15,7 +15,7 @@
 %%=============================================================================
 
 create_db(Database) ->
-    Targets = [node()|nodes()],
+    Targets = [node()|adb_utils:valid_nodes()],
     Request = {process_request, {all, {create_db, Database, Database}}},
     ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
     case gen_partition:validate_response(ResponseStats, length(Targets), write) of
@@ -26,7 +26,7 @@ create_db(Database) ->
     end.
 
 connect(Database) ->
-    Targets = [node()|nodes()],
+    Targets = [node()|adb_utils:valid_nodes()],
     Request = {process_request, {all, {connect, Database, Database}}},
     ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
     case gen_partition:validate_response(ResponseStats, length(Targets), read) of
@@ -73,7 +73,7 @@ delete(Database, Key) ->
     gen_server:call({adb_vnode_server, Target}, Request).
 
 query_term(Database, Term) ->
-    Targets = [node()|nodes()],
+    Targets = [node()|adb_utils:valid_nodes()],
     Request = {process_request, {all, {query_term, Database, Term}}},
     ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
     case gen_partition:validate_response(ResponseStats, length(Targets), write) of
@@ -83,7 +83,7 @@ query_term(Database, Term) ->
     end.
 
 query(Database, Query) ->
-    Targets = [node()|nodes()],
+    Targets = [node()|adb_utils:valid_nodes()],
     Request = {process_request, {all, {query, Database, Query}}},
     ResponseStats = gen_partition:multi_call(Targets, adb_vnode_server, Request),
     case gen_partition:validate_response(ResponseStats, length(Targets), write) of

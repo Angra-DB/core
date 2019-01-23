@@ -17,13 +17,13 @@
 start(_Type, StartArgs) ->
 
     % Config distribution according to configuration from .app and flags.
-    lager:info("Setting up the distribution configuration. ~n"),
+    lager:info("Setting up the distribution configuration."),
     Dist = proplists:get_value(distribution, StartArgs),
     {ok, Mode} = configure_dist(Dist),
 
     Target = case os:getenv("ADB_ACCESS", none) of
         none   -> none; 
-        Access -> lager:info("Trying to connect to node: ~s ~n", [Access]),
+        Access -> lager:info("Trying to connect to node: ~s", [Access]),
                   list_to_atom(Access)
     end,
     Config = case search_for_node(Mode, Target) of
@@ -50,7 +50,7 @@ search_for_node(dist, none) ->
     none;
 search_for_node(dist, Target) ->
     case net_adm:ping(Target) of
-        pang -> lager:warning("Could not contact node ~s.~n", [Target]),
+        pang -> lager:warning("Could not contact node ~s.", [Target]),
                 {error, notfound};
         pong -> syncing_with_remote(Target)
     end;
@@ -61,12 +61,12 @@ syncing_with_remote(Target) ->
     DestTarget = {adb_dist_server, Target},
     Request = {node_up, []},
     try gen_server:call(DestTarget, Request) of
-        {ok, State} -> lager:info("Successfully contacted to ~s. ~n", [Target]),        
+        {ok, State} -> lager:info("Successfully contacted to ~s.", [Target]),        
                        {ok, State};
-        _           -> lager:warning("Node not found.~n"),
+        _           -> lager:warning("Node not found."),
                        {error, notfound}
     catch
-        _Class:Err -> lager:warning("Could not contact node ~s: ~p.~n", [Target, Err]),
+        _Class:Err -> lager:warning("Could not contact node ~s: ~p.", [Target, Err]),
                       {error, notfound}
     end.
 
