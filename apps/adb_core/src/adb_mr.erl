@@ -167,7 +167,7 @@ handle_cast({mr_task, #taskInformation{id = Id, manager = Manager, documentIndex
 handle_cast({mr_worker}, #nodeInfo{database = Database, workerTask = Id}) ->
 		try
 			[{_, WorkerTask = #workerTask{manager = Manager, documentIndexList = DocIndexList, modules = #taskModules{main = MainModule = {ModuleName, _, _}, dependencies = Dependencies}}} | _] = ets:lookup(?WorkerTasksTable, Id),
-			%log("Worker start task."),
+			log("Worker start task."),
 			% Code to be removed when receiving the right name from persistance
 			VNodeName = get_vnode_name(1),
 			RealDBName = get_database_name(Database, VNodeName),
@@ -176,25 +176,25 @@ handle_cast({mr_worker}, #nodeInfo{database = Database, workerTask = Id}) ->
 			{ok, Fp} = file:open(NameIndex, [read, binary]),
 			{Settings, _} = get_header(Fp),
 			{ok, DocList} = doc_list(Database),
-			%log("Worker doc list retrieved."),
-			%log("Worker -- IndexList"),
+			log("Worker doc list retrieved."),
+			log("Worker -- IndexList"),
 			%log(DocIndexList),
 			MapResults = adb_map(DocIndexList, ModuleName, DocList, Settings),
-			%log("Map executed."),
+			log("Map executed."),
 			%log(MapResults),
 			ReduceResults = adb_reduce(MapResults, ModuleName),
-			%log("Reduce executed."),
+			log("Reduce executed."),
 			Result = #taskResult{node = node(), result = ReduceResults, taskCompletionDate = calendar:universal_time()},
 			gen_server:cast({adb_mr, Manager}, {task_done, Result}),
-			%log("Worker result sent."),
+			log("Worker result sent."),
 			remove_module(MainModule),
 			remove_module(Dependencies),
-			%log("Worker entry modules unloaded."),
+			log("Worker entry modules unloaded."),
 			DoneWorkerTask = WorkerTask#workerTask{modules = ?TaskDone},
 			ets:insert(?WorkerTasksTable, {Id, DoneWorkerTask}),
 			NewState = #nodeInfo{status = idle, database = none, managementTask = none, workerTask = none, lastResult = Result},
 			file:close(Fp),
-			%log("Worker exit."),
+			log("Worker exit."),
 			{noreply, NewState}
 		catch
 			error:Error ->
@@ -284,17 +284,17 @@ get_document(Index, DocList, Settings) ->
 	%log("Worker -- Index"),
 	%log(Index),
 	%log("Worker -- DocList"),
-	%log(DocList),
-	%log(lists:nth(Index, DocList)),
+	log(DocList),
+	log(lists:nth(Index, DocList)),
 	{_, DocPos} = lists:nth(Index, DocList),
-	%log("Worker -- DocPos"),
-	%log(DocPos),
+	log("Worker -- DocPos"),
+	log(DocPos),
 	{ok, Doc, _} = read_doc(DocPos, Settings),
-	%log("Worker -- Doc."),
+	log("Worker -- Doc."),
 	%log(Doc),
 	% Parsing the document to proplist.
 	Parsed = parse_doc(Doc),
-	%log("Worker -- Parsed document"),
+	log("Worker -- Parsed document"),
 	%log(Parsed),
 	Parsed.
 
@@ -436,13 +436,13 @@ reset_table() ->
 adb_map([], _, _, _) ->
 	[];
 adb_map([Index | Tail], Module, DocList, Settings) ->
-	%log("Worker -- Starting Map"),
+	log("Worker -- Starting Map"),
 	Doc = get_document(Index, DocList, Settings),
 	%log("Worker -- Doc got."),
 	%log(Module),
 	try Module:map(Doc) of
 		MapResult ->
-			%log("Map works"),
+			log("Map works"),
 			[MapResult | adb_map(Tail, Module, DocList, Settings)]
 	catch
 		Error ->
@@ -453,10 +453,10 @@ adb_map([Index | Tail], Module, DocList, Settings) ->
 adb_reduce([], _) ->
 	[];
 adb_reduce(Entry, Module) ->
-	%log("Starting Reduce"),
+	log("Starting Reduce"),
 	try Module:reduce(Entry) of
 		ReduceResult ->
-			%log("Reduce works."),
+			log("Reduce works."),
 			ReduceResult
 	catch
 		Error ->
