@@ -284,7 +284,7 @@ get_document(Index, DocList, Settings) ->
 	%log("Worker -- Index"),
 	%log(Index),
 	%log("Worker -- DocList"),
-	log(DocList),
+	%log(DocList),
 	log(lists:nth(Index, DocList)),
 	{_, DocPos} = lists:nth(Index, DocList),
 	log("Worker -- DocPos"),
