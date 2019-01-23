@@ -70,7 +70,8 @@ handle_cast(stop, State) ->
 
 handle_info({tcp, Socket, RawData}, State = #state{ waiting_request = true, body = Request}) ->
     {NewRequest, Concatenated, Size} = update_request_data(Request, clean_request(RawData)),
-    case list_to_integer(Size) > length(Concatenated) of
+    %account for the white space
+    case list_to_integer(Size) > length(Concatenated)+1 of
         true -> 
             {noreply, State#state{waiting_request = true, body = NewRequest}};
         _ ->
@@ -183,7 +184,7 @@ preprocess(RawData) ->
 	    [C] when C =:= "save_key"; C =:= "update" -> 
             {Key, DocInfo} = split(Args),
             get_doc_arguments(DocInfo, fun({Size, Doc}) -> {Command, {Key, Size, Doc}} end);
-        ["save"] ->
+        [C] when C =:= "save"; C =:= "bulk_lookup" ->
             get_doc_arguments(Args, fun({Size, Doc}) -> {Command, {Size, Doc}} end);
         _ -> 
             {Command, Args}

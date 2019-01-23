@@ -41,7 +41,7 @@ bulk_lookup_(_, []) ->
 bulk_lookup_(ReaderPid, [K | Keys]) ->
     case reader:lookup(ReaderPid, list_to_integer(K, 16)) of
         {ok, _Version, Doc} ->
-            [Doc | bulk_lookup_(ReaderPid, Keys)];
+            [{K, Doc} | bulk_lookup_(ReaderPid, Keys)];
         not_found ->
             lager:info("Key not found: ~p", [K]),
             bulk_lookup_(ReaderPid, Keys)

@@ -51,6 +51,12 @@ process_command(filter_field, FieldNames, CurrentResult, DbName, Statements) ->
 
 process_command(filter, Words, _, DbName, Statements) ->
   NewResult = process_expression(Words, DbName),
+  process_query(Statements, NewResult, DbName);
+
+process_command(interval, [StartStr, NElementsStr], CurrentResult, DbName, Statements) ->
+  Start = list_to_integer(StartStr)+1,
+  NElements = list_to_integer(NElementsStr),
+  NewResult = lists:sublist(CurrentResult, Start, NElements),
   process_query(Statements, NewResult, DbName).
 
 process_expression([W | Words], DbName) ->

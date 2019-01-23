@@ -37,7 +37,7 @@ process_request(query_term, DB, Term, Child, _) ->
 process_request(query, DB, Term, Child, _) ->
     Child:query(DB, Term);
 
-process_request(bulk_lookup, DB, Keys, Child, _) ->
+process_request(bulk_lookup, DB, {_, Keys}, Child, _) ->
     Child:bulk_lookup(DB, split(Keys, " ")).
 
 gen_key() ->
