@@ -6,9 +6,9 @@
 	get_hash_as_hex/1
 ]).
 
-% calculates the md5 hash, and then converts the digest to hex (as list), in the expected format of a doc key.
+% calculates the SHA-256 hash, and then converts the digest to hex (as list), in the expected format of a doc key.
 get_hash_as_hex(Data) ->
-	get_hash_as_hex(Data, md5).
+	get_hash_as_hex(Data, sha256).
 
 % calculates the hash using the given algorithm, and then converts the digest to hex (as list), in the expected format of a doc key.
 get_hash_as_hex(Data, Hash_algorithm) ->

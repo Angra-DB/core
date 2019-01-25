@@ -81,12 +81,12 @@ handle_register({Username, _}, Persistence_scheme, Socket) ->
 					{error, certificateAlreadyInUse};
 				not_found ->
 					% now check if this username is already in use
-					{ok, UsernamesDoc} = gen_persistence:process_request(lookup, list_to_atom(?AuthenticationDBName), ?UsernamesDocKey, Persistence_scheme, none),
+					{ok, UsernamesDoc} = gen_persistence:process_request(lookup, AuthDBNameAtom, ?UsernamesDocKey, Persistence_scheme, none),
 					RegisteredUsernames = jsone:decode(list_to_binary(UsernamesDoc)),
 					Username_binary = list_to_binary(Username),
 					case lists:member(Username_binary, RegisteredUsernames) of
 						true ->
-							{error, user_already_exists};
+							{error, username_already_exists};
 						false ->
 							NewUsernamesDoc = jsone:encode([Username_binary | RegisteredUsernames]), % when saving an encoded list of strings, the strings need to be in binary format, because of our indexer parse logic
 							gen_persistence:process_request(update, AuthDBNameAtom, {?UsernamesDocKey, binary_to_list(NewUsernamesDoc)}, Persistence_scheme, none),
